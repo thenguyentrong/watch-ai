@@ -43,6 +43,8 @@ include(
     ":core:brain",
     ":core:brain-chatgpt",
     ":core:brain-ondevice",
+    ":core:buddy",
+    ":core:buddy-ui",
     ":core:security",
     ":core:testing",
     ":core:voice",

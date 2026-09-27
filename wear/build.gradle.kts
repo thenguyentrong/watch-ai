@@ -143,6 +143,8 @@ androidComponents {
 
 dependencies {
     implementation(project(":core:watchlink"))
+    implementation(project(":core:buddy"))
+    implementation(project(":core:buddy-ui"))
     implementation(files(fetchSherpaOnnx.flatMap { it.target }))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

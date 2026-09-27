@@ -6,8 +6,14 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import com.google.android.gms.wearable.ChannelClient
 import com.vinhnguyen.watchai.AppGraph
+import com.vinhnguyen.watchai.actions.BuddyTools
 import com.vinhnguyen.watchai.actions.PhoneActions
+import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
+import com.vinhnguyen.watchai.buddy.Mood
+import com.vinhnguyen.watchai.buddy.MoodReader
+import com.vinhnguyen.watchai.buddy.Outfit
+import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.voice.ChatGptRealtimeSession
 import com.vinhnguyen.watchai.voice.VoiceState
 import kotlinx.coroutines.Job
@@ -87,14 +93,22 @@ class WatchCalls(
                     watch.setRoute(next)
                 }
             }
+            watch.mascot(outfit = Outfit.parse(graph.settings.buddyOutfit), seed = graph.buddySeed())
+            val tools =
+                Toolboxes(
+                    listOf(
+                        // Timers and alarms go to the watch unless the user asks for the phone: it's on the wrist, and on screen.
+                        PhoneActions(graph.appContext, graph.notes, graph.controls, graph.phoneClock, WatchOnCall(watch), graph.logger),
+                        BuddyTools(graph.settings, graph.logger) { outfit -> watch.mascot(outfit = outfit) },
+                    ),
+                ) { name, result -> afterTool(watch, name, result) }
             val s =
                 ChatGptRealtimeSession(
                     graph.appContext,
                     graph.session,
                     ChatGptHttp.authClient(),
                     graph.chatGpt,
-                    // Timers and alarms go to the watch unless the user asks for the phone: it's on the wrist, and on screen.
-                    PhoneActions(graph.appContext, graph.notes, graph.controls, graph.phoneClock, WatchOnCall(watch), graph.logger),
+                    tools,
                     graph.logger,
                     voice = graph.settings.voice,
                     external = watch,
@@ -106,7 +120,11 @@ class WatchCalls(
             channel = opened
             watcher =
                 graph.scope.launch {
-                    s.state.collect { vs -> _call.value = Call(watch.name, watch.route, vs) }
+                    val face = BuddyFace(watch)
+                    s.state.collect { vs ->
+                        _call.value = Call(watch.name, watch.route, vs)
+                        face.follow(vs)
+                    }
                 }
             s.start()
         }
@@ -114,6 +132,59 @@ class WatchCalls(
 
     /** Debug builds: plays [pcm] into the current call as if said on the watch. False if there's no call. */
     fun say(pcm: ShortArray): Boolean = audio?.say(pcm) != null
+
+    /** Buddy after an action: proud when it's done, an oops when it failed, excited in new clothes; reading things shows nothing. */
+    private fun afterTool(
+        watch: WatchAudio,
+        name: String,
+        result: String,
+    ) {
+        if (name in QUIET_TOOLS) return
+        val reaction =
+            when {
+                result.startsWith("error") -> Reaction(Mood.OOPS, 0.7f)
+                name == BuddyTools.DRESS -> Reaction(Mood.EXCITED, 0.8f)
+                else -> Reaction(Mood.PROUD, 0.8f)
+            }
+        watch.mascot(reaction = reaction)
+    }
+
+    /**
+     * Buddy's face follows the words: the user's thanks and greetings, the answer's tone. Each mood
+     * plays once per turn; a new answer can play the same mood again.
+     */
+    private class BuddyFace(
+        private val watch: WatchAudio,
+    ) {
+        private var heard: String? = null
+        private var said: String? = null
+        private var shown: Mood? = null
+
+        fun follow(state: VoiceState) {
+            state.lastUserText?.takeIf { it != heard }?.let { text ->
+                if (!continues(heard, text)) shown = null
+                heard = text
+                show(MoodReader.user(text))
+            }
+            state.lastAssistantText?.takeIf { it != said }?.let { text ->
+                if (!continues(said, text)) shown = null
+                said = text
+                show(MoodReader.assistant(text))
+            }
+        }
+
+        /** The same turn still being written, rather than a new one. */
+        private fun continues(
+            before: String?,
+            now: String,
+        ) = before != null && now.startsWith(before.take(TURN_PREFIX))
+
+        private fun show(reaction: Reaction?) {
+            if (reaction == null || reaction.mood == shown) return
+            shown = reaction.mood
+            watch.mascot(reaction = reaction)
+        }
+    }
 
     suspend fun hangUp() {
         lock.withLock { hangUpLocked() }
@@ -197,5 +268,7 @@ class WatchCalls(
     private companion object {
         /** Like a smart speaker: back to sleep after 10 s with nobody talking. */
         const val IDLE_HANG_UP_MS = 10_000L
+        const val TURN_PREFIX = 12
+        val QUIET_TOOLS = setOf(PhoneActions.LIST_NOTES, PhoneActions.LIST_EVENTS, PhoneActions.DEVICE_STATUS)
     }
 }

@@ -25,6 +25,7 @@ import com.vinhnguyen.watchai.security.protectScreen
 import com.vinhnguyen.watchai.ui.BenchmarkViewModel
 import com.vinhnguyen.watchai.ui.BrainsScreen
 import com.vinhnguyen.watchai.ui.BrainsViewModel
+import com.vinhnguyen.watchai.ui.BuddyScreen
 import com.vinhnguyen.watchai.ui.ChatScreen
 import com.vinhnguyen.watchai.ui.ChatViewModel
 import com.vinhnguyen.watchai.ui.NoticeScreen
@@ -68,7 +69,7 @@ class MainActivity : ComponentActivity() {
                 val benchmark: BenchmarkViewModel? = if (BuildConfig.DEBUG) viewModel(factory = factory) else null
                 val voiceLab: VoiceLabViewModel? = if (BuildConfig.DEBUG) viewModel(factory = factory) else null
                 var tab by rememberSaveable { mutableIntStateOf(0) }
-                val tabs = listOf("Chat", "Brains", "Settings") + if (voiceLab != null) listOf("Voice") else emptyList()
+                val tabs = listOf("Chat", "Brains", "Settings") + if (voiceLab != null) listOf("Voice", "Buddy") else emptyList()
                 Scaffold(
                     topBar = { TopAppBar(title = { Text("Watch AI") }) },
                     bottomBar = {
@@ -92,6 +93,7 @@ class MainActivity : ComponentActivity() {
                             0 -> ChatScreen(chat)
                             1 -> BrainsScreen(brains)
                             3 -> voiceLab?.let { VoiceLabScreen(it) }
+                            4 -> BuddyScreen(graph)
                             else -> SettingsScreen(onDeleteEverything = graph::deleteEverything, benchmark = benchmark)
                         }
                     }

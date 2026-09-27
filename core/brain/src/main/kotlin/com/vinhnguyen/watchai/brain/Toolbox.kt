@@ -24,3 +24,24 @@ public data class ToolSpec(
     val description: String,
     val parametersJson: String,
 )
+
+/**
+ * Several toolboxes offered as one (e.g. the phone's actions and Buddy's outfits). [onResult] sees
+ * every call's result, so the app can react to what the tools did.
+ */
+public class Toolboxes(
+    private val parts: List<Toolbox>,
+    private val onResult: (name: String, result: String) -> Unit = { _, _ -> },
+) : Toolbox {
+    override fun tools(): List<ToolSpec> = parts.flatMap { it.tools() }
+
+    override suspend fun run(
+        name: String,
+        argumentsJson: String,
+    ): String {
+        val part = parts.firstOrNull { toolbox -> toolbox.tools().any { it.name == name } }
+        val result = part?.run(name, argumentsJson) ?: "error: there is no action called $name"
+        onResult(name, result)
+        return result
+    }
+}

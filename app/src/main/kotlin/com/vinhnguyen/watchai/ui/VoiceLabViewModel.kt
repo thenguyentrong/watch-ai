@@ -161,12 +161,12 @@ class VoiceLabViewModel(
                         graph.session,
                         ChatGptHttp.authClient(),
                         graph.chatGpt,
-                        graph.actions,
+                        graph.tools,
                         graph.logger,
                         voice = _state.value.voice,
                     )
 
-                Engine.ON_DEVICE -> OnDeviceVoiceSession(graph.appContext, graph.gemma, graph.logger, graph.actions)
+                Engine.ON_DEVICE -> OnDeviceVoiceSession(graph.appContext, graph.gemma, graph.logger, graph.tools)
             }
         session = s
         _state.update { it.copy(engine = engine, active = engine, savedTo = null) }

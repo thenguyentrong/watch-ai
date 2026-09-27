@@ -4,17 +4,20 @@ import android.content.Context
 import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.vinhnguyen.watchai.actions.BuddyTools
 import com.vinhnguyen.watchai.actions.NoteStore
 import com.vinhnguyen.watchai.actions.PhoneActions
 import com.vinhnguyen.watchai.actions.PhoneClock
 import com.vinhnguyen.watchai.actions.PhoneControls
 import com.vinhnguyen.watchai.brain.BrainRouter
+import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptBrain
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptSettings
 import com.vinhnguyen.watchai.brain.chatgpt.auth.AuthSession
 import com.vinhnguyen.watchai.brain.chatgpt.auth.ChatGptSignIn
 import com.vinhnguyen.watchai.brain.chatgpt.auth.CodexOAuthClient
+import com.vinhnguyen.watchai.buddy.Genes
 import com.vinhnguyen.watchai.ondevice.AppForeground
 import com.vinhnguyen.watchai.ondevice.EngineHolder
 import com.vinhnguyen.watchai.ondevice.GeminiNanoBrain
@@ -27,6 +30,7 @@ import com.vinhnguyen.watchai.watch.WatchCalls
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import java.util.UUID
 
 /** Everything the app needs, created once. No DI framework: the graph is small. */
 class AppGraph(
@@ -71,6 +75,12 @@ class AppGraph(
     val controls = PhoneControls(appContext, scope)
     val phoneClock = PhoneClock(appContext) { foreground.isForeground() }
     val actions = PhoneActions(appContext, notes, controls, phoneClock, logger = logger)
+
+    /** Everything the AI may use: the phone's actions and Buddy's wardrobe. */
+    val tools = Toolboxes(listOf(actions, BuddyTools(settings, logger)))
+
+    /** This user's Buddy: from their ChatGPT account, or this install until they sign in. */
+    suspend fun buddySeed(): Long = Genes.seedFor(runCatching { session.bearer().accountId }.getOrNull() ?: settings.installId)
     val watchCalls = WatchCalls(this)
 
     /** "Delete everything": tokens, keys, reports, notes, models, settings. */
@@ -98,6 +108,15 @@ class AppSettings(
     var cloudAllowed: Boolean
         get() = prefs.getBoolean("cloud_allowed", false)
         set(value) = prefs.edit { putBoolean("cloud_allowed", value) }
+
+    /** What Buddy wears, as item names; the AI picks it from who the user is. */
+    var buddyOutfit: String
+        get() = prefs.getString("buddy_outfit", null).orEmpty()
+        set(value) = prefs.edit { putString("buddy_outfit", value) }
+
+    /** A random id for this install, for Buddy until the user signs in. Never sent anywhere. */
+    val installId: String
+        get() = prefs.getString("install_id", null) ?: UUID.randomUUID().toString().also { id -> prefs.edit { putString("install_id", id) } }
 
     /** GPT-Live voice, chosen in the Voice tab; watch calls use it too. */
     var voice: String

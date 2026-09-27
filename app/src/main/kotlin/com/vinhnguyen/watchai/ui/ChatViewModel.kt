@@ -73,7 +73,7 @@ class ChatViewModel(
             viewModelScope.launch {
                 try {
                     graph.router
-                        .stream(ChatRequest(conversationId, history, prompt, context = DeviceContext.describe(), tools = graph.actions), snapshot.preference, snapshot.cloudAllowed)
+                        .stream(ChatRequest(conversationId, history, prompt, context = DeviceContext.describe(), tools = graph.tools), snapshot.preference, snapshot.cloudAllowed)
                         .collect { event ->
                             updateMessage(answerId) { m ->
                                 when (event) {

@@ -14,19 +14,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -37,9 +43,13 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.wear.ambient.AmbientLifecycleObserver
+import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
+import androidx.wear.compose.foundation.rotary.rotaryScrollable
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.SwitchButton
 import androidx.wear.compose.material3.Text
+import com.vinhnguyen.watchai.buddy.Act
+import com.vinhnguyen.watchai.buddy.ui.BuddyView
 import com.vinhnguyen.watchai.wear.PhoneVoiceLink.Phase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -155,21 +165,43 @@ private fun WatchScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Face(
-                phase = state.phase,
+    val look by vm.link.look.collectAsStateWithLifecycle()
+    val screen = LocalConfiguration.current
+    val scroll = rememberScrollState()
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    // One screen: Buddy and a line of text. The one setting is a scroll away (bezel or swipe).
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .rotaryScrollable(RotaryScrollableDefaults.behavior(scroll), focus)
+            .verticalScroll(scroll),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().height(screen.screenHeightDp.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            BuddyView(
+                genes = look.genes,
+                outfit = look.outfit,
+                act = act(state.phase, wakeOn && wakeListening),
+                reaction = state.reaction,
+                reactionId = state.reactionId,
                 level = if (ambient) 0f else state.level,
                 ambient = ambient,
+                // Every frame costs the watch's small cores: a calm Buddy redraws 10 times a second, a talking one 30.
+                fps = if (active) 30 else 10,
                 modifier =
                 Modifier
-                    .size(120.dp)
-                    .clip(CircleShape)
+                    .size((screen.screenWidthDp * 0.74f).dp)
                     .clickable(onClickLabel = if (active) "End the conversation" else "Start talking", role = Role.Button, onClick = onTap),
             )
             Text(
                 label(state, wakeOn && wakeListening),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
             )
@@ -181,22 +213,33 @@ private fun WatchScreen(
                     else -> null
                 }
             earbuds?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            state.roundTripMs?.takeIf { active }?.let {
-                Text("link $it ms", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (!active && !ambient) {
-                SwitchButton(
-                    checked = wakeOn,
-                    onCheckedChange = { on ->
-                        val missing = WAKE_PERMISSIONS.filter { context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-                        if (on && missing.isNotEmpty()) wakePermission.launch(missing.toTypedArray()) else vm.setWake(on)
-                    },
-                    label = { Text("Hey Buddy") },
-                    modifier = Modifier.padding(horizontal = 36.dp),
-                )
-            }
+        }
+        if (!active && !ambient) {
+            SwitchButton(
+                checked = wakeOn,
+                onCheckedChange = { on ->
+                    val missing = WAKE_PERMISSIONS.filter { context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+                    if (on && missing.isNotEmpty()) wakePermission.launch(missing.toTypedArray()) else vm.setWake(on)
+                },
+                label = { Text("Hey Buddy") },
+                modifier = Modifier.padding(horizontal = 36.dp),
+            )
+            Spacer(Modifier.height(48.dp))
         }
     }
+}
+
+/** What the conversation looks like on Buddy. */
+private fun act(
+    phase: Phase,
+    wakeListening: Boolean,
+): Act = when (phase) {
+    Phase.IDLE -> if (wakeListening) Act.AWAKE else Act.REST
+    Phase.CONNECTING -> Act.CONNECT
+    Phase.LISTENING -> Act.LISTEN
+    Phase.THINKING -> Act.THINK
+    Phase.SPEAKING -> Act.SPEAK
+    Phase.ERROR -> Act.ERROR
 }
 
 private val WAKE_PERMISSIONS = listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)

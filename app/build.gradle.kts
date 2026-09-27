@@ -53,6 +53,8 @@ dependencies {
     implementation(project(":core:security"))
     implementation(project(":core:voice"))
     implementation(project(":core:watchlink"))
+    implementation(project(":core:buddy"))
+    implementation(project(":core:buddy-ui"))
     implementation(libs.play.services.wearable)
     implementation(libs.kotlinx.coroutines.play.services)
 
