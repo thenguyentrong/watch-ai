@@ -20,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.wear.compose.material3.MaterialTheme
 import com.vinhnguyen.watchai.wear.PhoneVoiceLink.Phase
 
@@ -36,17 +35,17 @@ fun Face(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val skin by animateColorAsState(
+    // Face and features use a colour role and its "on" pair, so the eyes stay readable in every state.
+    val (skinTarget, featuresTarget) =
         when (phase) {
-            Phase.IDLE -> colors.surfaceContainerHigh
-            Phase.ERROR -> colors.errorContainer
-            Phase.SPEAKING -> colors.tertiary
-            Phase.THINKING, Phase.CONNECTING -> colors.secondary
-            Phase.LISTENING -> colors.primary
-        },
-        label = "skin",
-    )
-    val features = if (phase == Phase.IDLE) colors.onSurface else Color.White
+            Phase.IDLE -> colors.surfaceContainerHigh to colors.onSurface
+            Phase.ERROR -> colors.errorContainer to colors.onErrorContainer
+            Phase.SPEAKING -> colors.tertiary to colors.onTertiary
+            Phase.THINKING, Phase.CONNECTING -> colors.secondary to colors.onSecondary
+            Phase.LISTENING -> colors.primary to colors.onPrimary
+        }
+    val skin by animateColorAsState(skinTarget, label = "skin")
+    val features by animateColorAsState(featuresTarget, label = "features")
     val talk = remember { Animatable(0f) }
     LaunchedEffect(level) { talk.animateTo(level.coerceIn(0f, 1f), spring(stiffness = Spring.StiffnessMedium)) }
     val eyesOpen by animateFloatAsState(if (phase == Phase.IDLE) 0.15f else 1f, label = "eyesOpen")

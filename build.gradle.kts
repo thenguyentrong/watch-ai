@@ -20,6 +20,7 @@ val kotlinSources =
         "core/testing",
         "core/voice",
         "core/watchlink",
+        "core/opus",
         "wear",
     )
 

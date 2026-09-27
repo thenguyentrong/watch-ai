@@ -1,6 +1,8 @@
 package com.vinhnguyen.watchai.watch
 
 import android.os.SystemClock
+import com.vinhnguyen.watchai.opus.OpusDecoder
+import com.vinhnguyen.watchai.opus.OpusEncoder
 import com.vinhnguyen.watchai.voice.ExternalAudio
 import com.vinhnguyen.watchai.voice.VoicePhase
 import com.vinhnguyen.watchai.watchlink.Control
@@ -21,7 +23,8 @@ import kotlin.concurrent.thread
 /**
  * The watch as the microphone and speaker of a phone conversation, over one Data Layer channel.
  * The watch's mic audio waits in a small jitter buffer until WebRTC asks for it; the answer is
- * cut into 20 ms frames and queued to the watch. Two threads do the blocking channel I/O.
+ * cut into 20 ms frames and queued to the watch. Two threads do the blocking channel I/O and the
+ * Opus coding (raw PCM only if this phone has no Opus codec), so WebRTC's audio thread never waits.
  */
 class WatchAudio(
     private val input: DataInputStream,
@@ -56,10 +59,13 @@ class WatchAudio(
     }
 
     private fun readLoop() {
+        val decoder = runCatching { OpusDecoder(WatchLink.SAMPLE_RATE) }.getOrNull()
         try {
             while (!closed) {
                 when (val frame = FrameCodec.read(input) ?: break) {
                     is Frame.Audio -> mic.offer(Pcm.toShorts(frame.pcm))
+
+                    is Frame.Opus -> decoder?.let { mic.offer(it.decode(frame.packet)) }
 
                     is Frame.Message ->
                         when (frame.control.type) {
@@ -72,20 +78,29 @@ class WatchAudio(
             }
         } catch (e: IOException) {
             // The watch went away; handled below.
+        } finally {
+            decoder?.close()
         }
         if (!closed) onEnd()
     }
 
     private fun writeLoop() {
+        val encoder = runCatching { OpusEncoder(WatchLink.SAMPLE_RATE) }.getOrNull()
         try {
             while (!closed) {
                 val frame = outbox.poll(200, TimeUnit.MILLISECONDS) ?: continue
-                FrameCodec.write(output, frame)
+                if (frame is Frame.Audio && encoder != null) {
+                    encoder.encode(Pcm.toShorts(frame.pcm)).forEach { FrameCodec.write(output, Frame.Opus(it)) }
+                } else {
+                    FrameCodec.write(output, frame)
+                }
             }
         } catch (e: IOException) {
             if (!closed) onEnd()
         } catch (e: InterruptedException) {
             // close()
+        } finally {
+            encoder?.close()
         }
     }
 

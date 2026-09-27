@@ -13,8 +13,11 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.os.SystemClock
+import android.util.Log
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.Wearable
+import com.vinhnguyen.watchai.opus.OpusDecoder
+import com.vinhnguyen.watchai.opus.OpusEncoder
 import com.vinhnguyen.watchai.watchlink.Control
 import com.vinhnguyen.watchai.watchlink.Frame
 import com.vinhnguyen.watchai.watchlink.FrameCodec
@@ -80,6 +83,9 @@ class PhoneVoiceLink(
 
     @Volatile private var micLevel = 0f
 
+    /** The phone picked up (sent its first frame). Until then nothing is sent, so no audio piles up. */
+    @Volatile private var answered = false
+
     suspend fun start() {
         lifecycle.withLock {
             if (scope != null) return
@@ -87,6 +93,7 @@ class PhoneVoiceLink(
                 _state.value = State(Phase.ERROR, detail = "Microphone permission needed")
                 return
             }
+            answered = false
             _state.value = State(Phase.CONNECTING, detail = "Calling your phone…")
             val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             scope = s
@@ -144,9 +151,25 @@ class PhoneVoiceLink(
 
     /** Frames from the phone: the answer's audio, "stop playing" when the user interrupts, and status. */
     private fun receive(input: DataInputStream) {
+        val decoder = runCatching { OpusDecoder(WatchLink.SAMPLE_RATE) }.getOrNull()
+        try {
+            receiveFrames(input, decoder)
+        } finally {
+            decoder?.close()
+        }
+    }
+
+    private fun receiveFrames(
+        input: DataInputStream,
+        decoder: OpusDecoder?,
+    ) {
         while (true) {
-            when (val frame = FrameCodec.read(input) ?: return) {
+            val frame = FrameCodec.read(input) ?: return
+            answered = true
+            when (frame) {
                 is Frame.Audio -> playback.offer(Pcm.toShorts(frame.pcm))
+
+                is Frame.Opus -> decoder?.let { playback.offer(it.decode(frame.packet)) }
 
                 Frame.Flush -> {
                     playback.clear()
@@ -167,7 +190,12 @@ class PhoneVoiceLink(
                 _state.update { it.copy(phase = phase, level = level, detail = null) }
             }
 
-            "pong" -> control.at?.let { at -> _state.update { it.copy(roundTripMs = SystemClock.elapsedRealtime() - at) } }
+            "pong" ->
+                control.at?.let { at ->
+                    val rtt = SystemClock.elapsedRealtime() - at
+                    Log.i(TAG, "link round trip $rtt ms")
+                    _state.update { it.copy(roundTripMs = rtt) }
+                }
 
             "bye" -> _state.update { it.copy(phase = Phase.ERROR, detail = "The phone ended the call") }
         }
@@ -186,6 +214,8 @@ class PhoneVoiceLink(
                 maxOf(minBuffer, WatchLink.FRAME_BYTES * 4),
             )
         val aec = if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(record.audioSessionId)?.apply { enabled = true } else null
+        // Opus keeps the Bluetooth link light (about 24 kbit/s); raw PCM only if the watch has no Opus codec.
+        val encoder = runCatching { OpusEncoder(WatchLink.SAMPLE_RATE) }.getOrNull()
         val frame = ShortArray(WatchLink.FRAME_SAMPLES)
         try {
             record.startRecording()
@@ -194,11 +224,18 @@ class PhoneVoiceLink(
                 if (n <= 0) continue
                 micLevel = Pcm.level(frame, n)
                 if (_state.value.phase == Phase.LISTENING) _state.update { it.copy(level = micLevel) }
-                FrameCodec.write(out, Frame.Audio(Pcm.toBytes(frame, n)))
+                if (!answered) continue
+                val pcm = if (n == frame.size) frame else frame.copyOf(n)
+                if (encoder != null) {
+                    encoder.encode(pcm).forEach { FrameCodec.write(out, Frame.Opus(it)) }
+                } else {
+                    FrameCodec.write(out, Frame.Audio(Pcm.toBytes(pcm)))
+                }
             }
         } finally {
             runCatching { record.stop() }
             aec?.release()
+            encoder?.close()
             record.release()
         }
     }
@@ -249,6 +286,7 @@ class PhoneVoiceLink(
 
     /** Measures the watch-phone round trip every 2 s (shown small on the face). */
     private suspend fun ping(out: DataOutputStream) {
+        while (!answered) delay(50)
         while (true) {
             runCatching { FrameCodec.write(out, Frame.Message(Control("ping", at = SystemClock.elapsedRealtime()))) }
             delay(PING_MS)
@@ -270,5 +308,6 @@ class PhoneVoiceLink(
 
     private companion object {
         const val PING_MS = 2_000L
+        const val TAG = "WatchLink"
     }
 }

@@ -13,7 +13,8 @@ import java.io.IOException
  * The phone runs the conversation (ChatGPT voice, hand-offs, phone actions); the watch is the
  * microphone, the speaker and the face.
  *
- * Audio is 16 kHz mono 16-bit little-endian PCM both ways, in 20 ms frames.
+ * Audio is 16 kHz mono, in 20 ms frames: Opus packets normally (about 24 kbit/s), raw 16-bit
+ * little-endian PCM if a device has no Opus codec (256 kbit/s, too much for Bluetooth to keep up).
  */
 public object WatchLink {
     public const val VOICE_PATH: String = "/watchai/voice/v1"
@@ -24,9 +25,14 @@ public object WatchLink {
 }
 
 public sealed interface Frame {
-    /** PCM as described in [WatchLink]. */
+    /** Raw PCM as described in [WatchLink]. */
     public class Audio(
         public val pcm: ByteArray,
+    ) : Frame
+
+    /** One Opus packet (20 ms, 16 kHz mono). */
+    public class Opus(
+        public val packet: ByteArray,
     ) : Frame
 
     public data class Message(
@@ -54,6 +60,7 @@ public object FrameCodec {
     private const val AUDIO = 1
     private const val MESSAGE = 2
     private const val FLUSH = 3
+    private const val OPUS = 4
     private val json = Json { ignoreUnknownKeys = true }
 
     public fun write(
@@ -63,6 +70,7 @@ public object FrameCodec {
         val (kind, payload) =
             when (frame) {
                 is Frame.Audio -> AUDIO to frame.pcm
+                is Frame.Opus -> OPUS to frame.packet
                 is Frame.Message -> MESSAGE to json.encodeToString(Control.serializer(), frame.control).encodeToByteArray()
                 Frame.Flush -> FLUSH to ByteArray(0)
             }
@@ -97,6 +105,7 @@ public object FrameCodec {
                 AUDIO -> return Frame.Audio(payload)
                 MESSAGE -> runCatching { json.decodeFromString(Control.serializer(), payload.decodeToString()) }.getOrNull()?.let { return Frame.Message(it) }
                 FLUSH -> return Frame.Flush
+                OPUS -> return Frame.Opus(payload)
             }
         }
     }

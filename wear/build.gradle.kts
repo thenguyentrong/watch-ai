@@ -39,6 +39,7 @@ kotlin {
 
 dependencies {
     implementation(project(":core:watchlink"))
+    implementation(project(":core:opus"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.wear.compose.material3)

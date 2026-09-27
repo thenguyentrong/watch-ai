@@ -27,6 +27,12 @@ class WatchLinkTest {
     }
 
     @Test
+    fun `opus packets keep their bytes`() {
+        val packet = byteArrayOf(0x48, 1, 2, 3, 4)
+        assertThat((roundTrip(Frame.Opus(packet)).single() as Frame.Opus).packet).isEqualTo(packet)
+    }
+
+    @Test
     fun `a channel cut in the middle of a frame ends cleanly`() {
         val bytes = ByteArrayOutputStream()
         FrameCodec.write(DataOutputStream(bytes), Frame.Audio(ByteArray(640)))
