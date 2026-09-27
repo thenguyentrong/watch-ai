@@ -2,15 +2,19 @@ package com.vinhnguyen.watchai.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.wearable.ChannelClient
 import com.vinhnguyen.watchai.AppGraph
 import com.vinhnguyen.watchai.actions.NoteStore
 import com.vinhnguyen.watchai.brain.Preloaded
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.voice.ChatGptRealtimeSession
+import com.vinhnguyen.watchai.voice.ExternalAudio
 import com.vinhnguyen.watchai.voice.GemmaAudioProbe
 import com.vinhnguyen.watchai.voice.OnDeviceVoiceSession
 import com.vinhnguyen.watchai.voice.VoiceSession
 import com.vinhnguyen.watchai.voice.VoiceState
+import com.vinhnguyen.watchai.watch.WatchAudio
+import com.vinhnguyen.watchai.watch.WatchBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -48,6 +52,8 @@ class VoiceLabViewModel(
         val probeRunning: Boolean = false,
         val probe: GemmaAudioProbe.Result? = null,
         val savedTo: String? = null,
+        /** Set while the conversation runs through the watch (its name). */
+        val watch: String? = null,
     ) {
         val current: VoiceState get() = if (engine == Engine.CHATGPT) chatGpt else onDevice
     }
@@ -66,6 +72,8 @@ class VoiceLabViewModel(
     private var warmJob: Job? = null
     private var visible = false
     private var stopLater: Job? = null
+    private val bridge = WatchBridge(graph.appContext)
+    private var watchCall: Pair<WatchAudio, ChannelClient.Channel>? = null
 
     /** The user's notes (newest last) and whether calendar actions are allowed, for "Things it can do". */
     val notes: StateFlow<List<NoteStore.Note>> = graph.notes.notes
@@ -110,10 +118,32 @@ class VoiceLabViewModel(
         _state.update { it.copy(engine = engine) }
     }
 
-    /** The screen is on show: keep Gemma loaded so talking to it starts without the 7-11 s load. */
+    /**
+     * The screen is on show: keep Gemma loaded so talking to it starts without the 7-11 s load, and
+     * take calls from the watch app (for now only while this screen is open).
+     */
     fun setVisible(isVisible: Boolean) {
         visible = isVisible
-        if (isVisible) warmUp() else coolDown()
+        if (isVisible) {
+            warmUp()
+            bridge.listen(onCall = ::answerWatch, onHangUp = { stop() })
+        } else {
+            coolDown()
+            bridge.stopListening()
+        }
+    }
+
+    /** The watch called: run ChatGPT voice with the watch as microphone and speaker. */
+    private fun answerWatch(channel: ChannelClient.Channel) {
+        viewModelScope.launch {
+            sessions.withLock {
+                stopCurrentLocked()
+                val watch = runCatching { bridge.answer(channel) { stop() } }.getOrNull() ?: return@withLock
+                watchCall = watch to channel
+                startLocked(Engine.CHATGPT, watch)
+                _state.update { it.copy(watch = watch.name) }
+            }
+        }
     }
 
     fun toggle() {
@@ -125,21 +155,39 @@ class VoiceLabViewModel(
         viewModelScope.launch {
             sessions.withLock {
                 stopCurrentLocked()
-                val s =
-                    when (engine) {
-                        Engine.CHATGPT -> ChatGptRealtimeSession(graph.appContext, graph.session, ChatGptHttp.authClient(), graph.chatGpt, graph.actions, graph.logger, voice = _state.value.voice)
-                        Engine.ON_DEVICE -> OnDeviceVoiceSession(graph.appContext, graph.gemma, graph.logger, graph.actions)
-                    }
-                session = s
-                _state.update { it.copy(engine = engine, active = engine, savedTo = null) }
-                watchJobs =
-                    listOf(
-                        launch { s.state.collect { vs -> _state.update { if (engine == Engine.CHATGPT) it.copy(chatGpt = vs) else it.copy(onDevice = vs) } } },
-                        launch { s.level.collect { _level.value = it } },
-                    )
-                s.start()
+                startLocked(engine, external = null)
             }
         }
+    }
+
+    private suspend fun startLocked(
+        engine: Engine,
+        external: ExternalAudio?,
+    ) {
+        val s =
+            when (engine) {
+                Engine.CHATGPT ->
+                    ChatGptRealtimeSession(
+                        graph.appContext,
+                        graph.session,
+                        ChatGptHttp.authClient(),
+                        graph.chatGpt,
+                        graph.actions,
+                        graph.logger,
+                        voice = _state.value.voice,
+                        external = external,
+                    )
+
+                Engine.ON_DEVICE -> OnDeviceVoiceSession(graph.appContext, graph.gemma, graph.logger, graph.actions)
+            }
+        session = s
+        _state.update { it.copy(engine = engine, active = engine, savedTo = null) }
+        watchJobs =
+            listOf(
+                viewModelScope.launch { s.state.collect { vs -> _state.update { if (engine == Engine.CHATGPT) it.copy(chatGpt = vs) else it.copy(onDevice = vs) } } },
+                viewModelScope.launch { s.level.collect { _level.value = it } },
+            )
+        s.start()
     }
 
     fun stop() {
@@ -151,6 +199,12 @@ class VoiceLabViewModel(
         val engine = _state.value.active
         session = null
         current.stop()
+        watchCall?.let { (watch, channel) ->
+            watch.close()
+            bridge.hangUp(channel)
+        }
+        watchCall = null
+        _state.update { it.copy(watch = null) }
         watchJobs.forEach { it.cancel() }
         watchJobs = emptyList()
         _level.value = 0f
@@ -247,6 +301,7 @@ class VoiceLabViewModel(
     }
 
     override fun onCleared() {
+        bridge.stopListening()
         val current = session
         val handle = warm
         session = null

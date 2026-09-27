@@ -49,6 +49,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.coroutines.executeAsync
 import org.webrtc.AudioSource
+import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
@@ -92,6 +93,8 @@ class ChatGptRealtimeSession(
     private val tools: Toolbox? = null,
     private val logger: BrainLogger = BrainLogger.None,
     private val voice: String = "cove",
+    /** When set (e.g. the watch), the user's voice comes from here and the answer plays there instead of on the phone. */
+    private val external: ExternalAudio? = null,
     private val instructions: String = VOICE_INSTRUCTIONS,
 ) : VoiceSession {
     override val name: String = "ChatGPT voice (GPT-Live)"
@@ -121,6 +124,9 @@ class ChatGptRealtimeSession(
     private var iceComplete = CompletableDeferred<Unit>()
 
     @Volatile private var responsePending = false
+
+    /** External speaker only: the user is talking over the answer, so it isn't forwarded. */
+    @Volatile private var answerMuted = false
     private val seenTypes = mutableSetOf<String>()
 
     override suspend fun start() {
@@ -148,7 +154,7 @@ class ChatGptRealtimeSession(
         val started = SystemClock.elapsedRealtime()
         try {
             var bearer = auth.bearer()
-            audio.enter()
+            if (external == null) audio.enter()
             val connection = createPeerConnection()
             val offer = connection.createOfferSdp()
             val answer =
@@ -163,7 +169,8 @@ class ChatGptRealtimeSession(
             if (!answer.trimStart().startsWith("v=0")) throw CallFailed(200, "the answer was not an SDP")
             connection.setRemote(SessionDescription(SessionDescription.Type.ANSWER, answer))
             val connectMs = SystemClock.elapsedRealtime() - started
-            _state.update { it.copy(phase = VoicePhase.LISTENING, detail = "Connected in $connectMs ms · just talk", metrics = it.metrics.withNote("answers play on ${audio.output}")) }
+            val playsOn = external?.name ?: "${audio.output} (offered: ${audio.offered})"
+            _state.update { it.copy(phase = VoicePhase.LISTENING, detail = "Connected in $connectMs ms · just talk", metrics = it.metrics.withNote("answers play on $playsOn")) }
             logger.log(LogEvent.Engine("voice_connected", "gpt-live", connectMs))
             pollLevels(connection)
         } catch (e: CancellationException) {
@@ -200,11 +207,22 @@ class ChatGptRealtimeSession(
             JavaAudioDeviceModule
                 .builder(appContext)
                 .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                .apply {
+                    external?.let { ext ->
+                        // Runs before WebRTC sends each 10 ms buffer: put the external mic's audio in it.
+                        setAudioBufferCallback { buffer, _, channels, sampleRate, bytes, captureTimeNs ->
+                            ext.fillMicrophone(buffer, bytes, sampleRate, channels)
+                            captureTimeNs
+                        }
+                    }
+                }
                 .setAudioAttributes(CallAudio.SPEECH)
                 .setUseHardwareAcousticEchoCanceler(true)
                 .setUseHardwareNoiseSuppressor(true)
                 .createAudioDeviceModule()
         adm = module
+        // With an external speaker the phone stays silent; the answer reaches it through a sink.
+        if (external != null) module.setSpeakerMute(true)
         val f = PeerConnectionFactory.builder().setAudioDeviceModule(module).createPeerConnectionFactory()
         factory = f
         val config = PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
@@ -312,11 +330,16 @@ class ChatGptRealtimeSession(
             }
             when (bargeIn.sample(now, user, timer.assistantSpeaking)) {
                 BargeIn.Action.MUTE -> {
-                    adm?.setSpeakerMute(true)
+                    if (external != null) {
+                        answerMuted = true
+                        external.flushAnswer()
+                    } else {
+                        adm?.setSpeakerMute(true)
+                    }
                     _state.update { it.copy(metrics = it.metrics.withInterrupt(bargeIn.lastMuteAfterMs)) }
                 }
 
-                BargeIn.Action.UNMUTE -> adm?.setSpeakerMute(false)
+                BargeIn.Action.UNMUTE -> if (external != null) answerMuted = false else adm?.setSpeakerMute(false)
 
                 null -> Unit
             }
@@ -329,6 +352,7 @@ class ChatGptRealtimeSession(
                     else -> VoicePhase.LISTENING
                 }
             if (_state.value.phase != phase && _state.value.phase != VoicePhase.ERROR) _state.update { it.copy(phase = phase) }
+            external?.status(phase, _level.value)
             delay(POLL_MS)
         }
     }
@@ -389,7 +413,13 @@ class ChatGptRealtimeSession(
             override fun onAddTrack(
                 receiver: RtpReceiver?,
                 streams: Array<out MediaStream>?,
-            ) = note("remote audio track")
+            ) {
+                note("remote audio track")
+                val ext = external ?: return
+                (receiver?.track() as? AudioTrack)?.addSink { data, _, sampleRate, channels, frames, _ ->
+                    if (!answerMuted) ext.playAnswer(data, sampleRate, channels, frames)
+                }
+            }
         }
 
     /** Events on the data channel: captions, the call's transcript, and delegations to answer. Only event types are logged. */

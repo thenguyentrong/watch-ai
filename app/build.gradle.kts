@@ -52,6 +52,9 @@ dependencies {
     implementation(project(":core:brain-ondevice"))
     implementation(project(":core:security"))
     implementation(project(":core:voice"))
+    implementation(project(":core:watchlink"))
+    implementation(libs.play.services.wearable)
+    implementation(libs.kotlinx.coroutines.play.services)
 
     implementation(platform(libs.kotlinx.coroutines.bom))
     implementation(libs.kotlinx.coroutines.android)

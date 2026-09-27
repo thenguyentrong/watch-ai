@@ -23,6 +23,10 @@ internal class CallAudio(
     var output: String = "phone"
         private set
 
+    /** What Android offered for this call, e.g. "loudspeaker, Bluetooth headset (Galaxy Watch5)" (for the lab screen). */
+    var offered: String = ""
+        private set
+
     @Synchronized
     fun enter() {
         if (active) return
@@ -36,6 +40,7 @@ internal class CallAudio(
         previousMode = audioManager.mode
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         val devices = audioManager.availableCommunicationDevices
+        offered = devices.joinToString { d -> d.label() + (d.productName?.toString()?.takeIf { it.isNotBlank() && d.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER && d.type != AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }?.let { " ($it)" } ?: "") }
         val device = PREFERRED.firstNotNullOfOrNull { type -> devices.firstOrNull { it.type == type } }
         if (device != null && audioManager.setCommunicationDevice(device)) output = device.label()
     }
@@ -52,8 +57,11 @@ internal class CallAudio(
 
     private fun AudioDeviceInfo.label(): String = when (type) {
         AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "loudspeaker"
+        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "earpiece"
         AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET -> "wired headset"
-        else -> "Bluetooth headset"
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "Bluetooth headset"
+        AudioDeviceInfo.TYPE_BLE_HEADSET -> "Bluetooth LE headset"
+        else -> "device type $type"
     }
 
     companion object {

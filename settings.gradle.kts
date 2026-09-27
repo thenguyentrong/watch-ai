@@ -46,4 +46,6 @@ include(
     ":core:security",
     ":core:testing",
     ":core:voice",
+    ":core:watchlink",
+    ":wear",
 )

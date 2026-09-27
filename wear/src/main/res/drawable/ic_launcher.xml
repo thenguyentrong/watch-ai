@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Placeholder face until the mascot is designed. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FF3D7BFF"
+        android:pathData="M24,2a22,22 0,1 1,0 44a22,22 0,1 1,0 -44z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M17,17a3,4 0,1 1,0 8a3,4 0,1 1,0 -8zM31,17a3,4 0,1 1,0 8a3,4 0,1 1,0 -8z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M17,30h14a7,6 0,0 1,-14 0z" />
+</vector>

@@ -411,7 +411,9 @@ private fun ProbeCard(
 }
 
 private fun engineLine(state: VoiceLabViewModel.State): String = when (state.engine) {
-    Engine.CHATGPT -> "Speech to speech on your ChatGPT plan · voice ${state.voice}"
+    Engine.CHATGPT ->
+        state.watch?.let { "Talking through $it · ChatGPT voice on your plan" }
+            ?: "Speech to speech on your ChatGPT plan · voice ${state.voice} · or tap the face in the watch app"
 
     Engine.ON_DEVICE ->
         "Gemma on this phone, nothing leaves it · " +

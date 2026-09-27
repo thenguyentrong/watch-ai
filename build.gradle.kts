@@ -10,7 +10,18 @@ plugins {
 }
 
 // Only source folders: walking build/ races with compilation running in parallel.
-val kotlinSources = listOf("app", "core/brain", "core/brain-chatgpt", "core/brain-ondevice", "core/security", "core/testing", "core/voice")
+val kotlinSources =
+    listOf(
+        "app",
+        "core/brain",
+        "core/brain-chatgpt",
+        "core/brain-ondevice",
+        "core/security",
+        "core/testing",
+        "core/voice",
+        "core/watchlink",
+        "wear",
+    )
 
 spotless {
     kotlin {

@@ -26,7 +26,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(platform(libs.okhttp.bom))
     implementation(libs.okhttp.coroutines)
-    implementation(libs.stream.webrtc)
+    implementation(libs.webrtc.sdk)
     implementation(libs.litertlm.android)
     implementation(libs.androidx.core.ktx)
     implementation(libs.timber)

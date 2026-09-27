@@ -137,7 +137,7 @@ class OnDeviceVoiceSession(
         tts = engine
         warmUpVoice(engine)
         createRecognizer(onDevice = SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext))
-        note("answers play on ${audio.output}")
+        note("answers play on ${audio.output} (offered: ${audio.offered})")
         conversationId = UUID.randomUUID().toString()
         synchronized(history) { history.clear() }
         listen()
