@@ -21,6 +21,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            // Test the watch with release builds: a debug build is 10x heavier on its two small cores.
+            // Signed with the debug key (same as the phone's debug build, so they pair) until the Play upload key exists.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

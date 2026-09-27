@@ -21,6 +21,7 @@ import com.vinhnguyen.watchai.watchlink.Control
 import com.vinhnguyen.watchai.watchlink.Frame
 import com.vinhnguyen.watchai.watchlink.FrameCodec
 import com.vinhnguyen.watchai.watchlink.LinkStats
+import com.vinhnguyen.watchai.watchlink.Outbox
 import com.vinhnguyen.watchai.watchlink.Pcm
 import com.vinhnguyen.watchai.watchlink.PcmQueue
 import com.vinhnguyen.watchai.watchlink.SilenceGate
@@ -83,6 +84,9 @@ class PhoneVoiceLink private constructor(
     @Volatile private var flushRequested = false
     private val stats = LinkStats()
 
+    /** What the mic and the pings have for the phone; the sender takes it all at once. */
+    private val outbox = Outbox(maxAudio = OUTBOX_FRAMES)
+
     @Volatile private var micLevel = 0f
 
     /** The phone picked up (sent its first frame). Until then nothing is sent, so no audio piles up. */
@@ -135,8 +139,9 @@ class PhoneVoiceLink private constructor(
             output = out
             useWatchSpeaker()
             s.launch { speak() }
-            s.launch { listen(out) }
-            s.launch { ping(out) }
+            s.launch { listen() }
+            s.launch { send(out) }
+            s.launch { ping() }
             receive(input)
             // The phone closed the channel.
             if (scope != null) {
@@ -204,7 +209,7 @@ class PhoneVoiceLink private constructor(
 
     /** The watch microphone, echo-cancelled, in 20 ms frames to the phone. */
     @SuppressLint("MissingPermission") // checked in start()
-    private suspend fun listen(out: DataOutputStream) = withContext(Dispatchers.IO) {
+    private suspend fun listen() = withContext(Dispatchers.IO) {
         val minBuffer = AudioRecord.getMinBufferSize(WatchLink.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val record =
             AudioRecord(
@@ -220,23 +225,31 @@ class PhoneVoiceLink private constructor(
         val gate = SilenceGate(threshold = MIC_SILENCE, hangoverFrames = MIC_HANGOVER)
         var previous: ShortArray? = null
         val frame = ShortArray(WatchLink.FRAME_SAMPLES)
+        var lastLevelAt = 0L
         try {
             record.startRecording()
             while (isActive) {
+                val readStart = SystemClock.elapsedRealtime()
                 val n = record.read(frame, 0, frame.size)
+                stats.add("reads")
+                stats.max("readMaxMs", SystemClock.elapsedRealtime() - readStart)
+                if (n < frame.size) stats.add("readShort")
                 if (n <= 0) continue
                 micLevel = Pcm.level(frame, n)
-                if (_state.value.phase == Phase.LISTENING) _state.update { it.copy(level = micLevel) }
+                // The face follows the voice at 10 updates a second; more only costs the watch CPU.
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastLevelAt >= LEVEL_EVERY_MS && _state.value.phase == Phase.LISTENING) {
+                    lastLevelAt = now
+                    _state.update { it.copy(level = micLevel) }
+                }
                 if (!answered) continue
                 val pcm = frame.copyOf(n)
                 val wasOpen = previous == null
                 if (gate.shouldSend(micLevel)) {
-                    val started = SystemClock.elapsedRealtime()
                     // The frame before speech starts too, so soft first sounds aren't clipped.
-                    if (!wasOpen) previous?.let { FrameCodec.write(out, Frame.Adpcm(encoder.encode(it))) }
-                    FrameCodec.write(out, Frame.Adpcm(encoder.encode(pcm)))
+                    if (!wasOpen) previous?.let { outbox.offer(Frame.Adpcm(encoder.encode(it))) }
+                    outbox.offer(Frame.Adpcm(encoder.encode(pcm)))
                     stats.add("outAdpcm")
-                    stats.max("writeMaxMs", SystemClock.elapsedRealtime() - started)
                     previous = null
                 } else {
                     stats.add("outSilent")
@@ -281,11 +294,10 @@ class PhoneVoiceLink private constructor(
                     track.flush()
                     track.play()
                 }
-                if (playback.available >= WatchLink.FRAME_SAMPLES) {
+                // Sleeps until audio arrives (no polling: this runs for the whole conversation).
+                if (playback.awaitAtLeast(WatchLink.FRAME_SAMPLES, timeoutMs = 50)) {
                     val chunk = playback.take(WatchLink.FRAME_SAMPLES)
                     track.write(chunk, 0, chunk.size)
-                } else {
-                    delay(5)
                 }
             }
         } finally {
@@ -294,12 +306,24 @@ class PhoneVoiceLink private constructor(
         }
     }
 
+    /** Sends whatever is waiting in one write, so a slow Bluetooth flush never holds up the mic. */
+    private suspend fun send(out: DataOutputStream) = withContext(Dispatchers.IO) {
+        while (isActive) {
+            val frames = outbox.takeAll(100)
+            if (frames.isEmpty()) continue
+            val started = SystemClock.elapsedRealtime()
+            FrameCodec.writeAll(out, frames)
+            stats.add("writes")
+            stats.max("writeMaxMs", SystemClock.elapsedRealtime() - started)
+        }
+    }
+
     /** Measures the watch-phone round trip every 2 s (shown small on the face). */
-    private suspend fun ping(out: DataOutputStream) {
+    private suspend fun ping() {
         while (!answered) delay(50)
         while (true) {
-            runCatching { FrameCodec.write(out, Frame.Message(Control("ping", at = SystemClock.elapsedRealtime()))) }
-            Log.i(TAG, "watch ${stats.drain()} playQueue=${playback.available}")
+            outbox.offer(Frame.Message(Control("ping", at = SystemClock.elapsedRealtime())))
+            Log.i(TAG, "watch ${stats.drain()} outbox=${outbox.size} dropped=${outbox.dropped} playQueue=${playback.available}")
             delay(PING_MS)
         }
     }
@@ -322,6 +346,8 @@ class PhoneVoiceLink private constructor(
         private const val TAG = "WatchLink"
         private const val MIC_SILENCE = 0.004f
         private const val MIC_HANGOVER = 8 // 320 ms
+        private const val OUTBOX_FRAMES = 25 // 1 s of audio at most waiting for the link
+        private const val LEVEL_EVERY_MS = 100L
 
         @Volatile private var instance: PhoneVoiceLink? = null
 

@@ -86,6 +86,19 @@ class WatchLinkTest {
     }
 
     @Test
+    fun `waiting for audio returns as soon as it arrives, or false after the timeout`() {
+        val q = PcmQueue(maxSamples = 1_000)
+        assertThat(q.awaitAtLeast(10, timeoutMs = 20)).isFalse()
+        Thread {
+            Thread.sleep(30)
+            q.offer(ShortArray(10))
+        }.start()
+        val started = System.currentTimeMillis()
+        assertThat(q.awaitAtLeast(10, timeoutMs = 2_000)).isTrue()
+        assertThat(System.currentTimeMillis() - started).isLessThan(1_000)
+    }
+
+    @Test
     fun `the jitter buffer hands out silence when empty and drops the oldest when full`() {
         val q = PcmQueue(maxSamples = 4)
         assertThat(q.take(2).toList()).containsExactly(0.toShort(), 0.toShort())

@@ -66,19 +66,31 @@ public object FrameCodec {
     public fun write(
         out: DataOutputStream,
         frame: Frame,
+    ): Unit = writeAll(out, listOf(frame))
+
+    /**
+     * Writes [frames] and flushes once. On the watch every flush waits for the Bluetooth link
+     * (0.2-1.4 s in the 27.09 test), so sending what has piled up in one go is what keeps up.
+     */
+    public fun writeAll(
+        out: DataOutputStream,
+        frames: List<Frame>,
     ) {
-        val (kind, payload) =
-            when (frame) {
-                is Frame.Audio -> AUDIO to frame.pcm
-                is Frame.Adpcm -> ADPCM to frame.packet
-                is Frame.Message -> MESSAGE to json.encodeToString(Control.serializer(), frame.control).encodeToByteArray()
-                Frame.Flush -> FLUSH to ByteArray(0)
-            }
-        require(payload.size <= WatchLink.MAX_PAYLOAD) { "frame too big" }
+        if (frames.isEmpty()) return
         synchronized(out) {
-            out.writeByte(kind)
-            out.writeShort(payload.size)
-            out.write(payload)
+            for (frame in frames) {
+                val (kind, payload) =
+                    when (frame) {
+                        is Frame.Audio -> AUDIO to frame.pcm
+                        is Frame.Adpcm -> ADPCM to frame.packet
+                        is Frame.Message -> MESSAGE to json.encodeToString(Control.serializer(), frame.control).encodeToByteArray()
+                        Frame.Flush -> FLUSH to ByteArray(0)
+                    }
+                require(payload.size <= WatchLink.MAX_PAYLOAD) { "frame too big" }
+                out.writeByte(kind)
+                out.writeShort(payload.size)
+                out.write(payload)
+            }
             out.flush()
         }
     }

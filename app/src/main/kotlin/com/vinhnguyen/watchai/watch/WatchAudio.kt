@@ -9,6 +9,7 @@ import com.vinhnguyen.watchai.watchlink.Control
 import com.vinhnguyen.watchai.watchlink.Frame
 import com.vinhnguyen.watchai.watchlink.FrameCodec
 import com.vinhnguyen.watchai.watchlink.LinkStats
+import com.vinhnguyen.watchai.watchlink.Outbox
 import com.vinhnguyen.watchai.watchlink.Pcm
 import com.vinhnguyen.watchai.watchlink.PcmQueue
 import com.vinhnguyen.watchai.watchlink.SilenceGate
@@ -18,8 +19,6 @@ import java.io.DataOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 /**
@@ -35,7 +34,7 @@ class WatchAudio(
     private val onEnd: () -> Unit,
 ) : ExternalAudio {
     private val mic = PcmQueue(WatchLink.SAMPLE_RATE / 2)
-    private val outbox = LinkedBlockingQueue<Frame>(OUTBOX_FRAMES)
+    private val outbox = Outbox(maxAudio = OUTBOX_FRAMES)
     private val pending = ShortArray(WatchLink.FRAME_SAMPLES)
     private var pendingCount = 0
     private val pendingLock = Any()
@@ -79,7 +78,7 @@ class WatchAudio(
                         when (frame.control.type) {
                             "ping" -> {
                                 stats.add("inPing")
-                                if (!outbox.offer(Frame.Message(Control("pong", at = frame.control.at)))) stats.add("pongDropped")
+                                outbox.offer(Frame.Message(Control("pong", at = frame.control.at)))
                             }
 
                             "bye" -> break
@@ -94,6 +93,7 @@ class WatchAudio(
         if (!closed) onEnd()
     }
 
+    /** Sends everything waiting in one write: each flush costs the watch a Bluetooth round trip. */
     private fun writeLoop() {
         val encoder = Adpcm.Encoder()
         val gate = SilenceGate(threshold = ANSWER_SILENCE, hangoverFrames = ANSWER_HANGOVER)
@@ -103,22 +103,29 @@ class WatchAudio(
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastReport >= REPORT_MS) {
                     lastReport = now
-                    Log.i(TAG, "phone ${stats.drain()} outbox=${outbox.size} micQueue=${mic.available}")
+                    Log.i(TAG, "phone ${stats.drain()} outbox=${outbox.size} dropped=${outbox.dropped} micQueue=${mic.available}")
                 }
-                val frame = outbox.poll(200, TimeUnit.MILLISECONDS) ?: continue
-                val started = SystemClock.elapsedRealtime()
-                if (frame is Frame.Audio) {
-                    val pcm = Pcm.toShorts(frame.pcm)
-                    if (gate.shouldSend(Pcm.level(pcm))) {
-                        FrameCodec.write(output, Frame.Adpcm(encoder.encode(pcm)))
-                        stats.add("outAdpcm")
-                    } else {
-                        stats.add("outSilent")
+                val waiting = outbox.takeAll(200)
+                if (waiting.isEmpty()) continue
+                val frames =
+                    waiting.mapNotNull { frame ->
+                        if (frame is Frame.Audio) {
+                            val pcm = Pcm.toShorts(frame.pcm)
+                            if (gate.shouldSend(Pcm.level(pcm))) {
+                                stats.add("outAdpcm")
+                                Frame.Adpcm(encoder.encode(pcm))
+                            } else {
+                                stats.add("outSilent")
+                                null
+                            }
+                        } else {
+                            stats.add("outOther")
+                            frame
+                        }
                     }
-                } else {
-                    FrameCodec.write(output, frame)
-                    stats.add(if (frame is Frame.Audio) "outPcm" else "outOther")
-                }
+                val started = SystemClock.elapsedRealtime()
+                FrameCodec.writeAll(output, frames)
+                stats.add("writes")
                 stats.max("writeMaxMs", SystemClock.elapsedRealtime() - started)
             }
         } catch (e: IOException) {
@@ -160,8 +167,8 @@ class WatchAudio(
             for (s in down) {
                 pending[pendingCount++] = s
                 if (pendingCount == pending.size) {
-                    // If the link can't keep up, drop audio rather than fall ever further behind.
-                    if (!outbox.offer(Frame.Audio(Pcm.toBytes(pending)))) stats.add("audioDropped")
+                    // If the link can't keep up, the outbox drops the oldest audio rather than fall behind.
+                    outbox.offer(Frame.Audio(Pcm.toBytes(pending)))
                     pendingCount = 0
                 }
             }
@@ -170,7 +177,7 @@ class WatchAudio(
 
     override fun flushAnswer() {
         synchronized(pendingLock) { pendingCount = 0 }
-        outbox.removeIf { it is Frame.Audio }
+        outbox.clearAudio()
         outbox.offer(Frame.Flush)
     }
 
@@ -185,8 +192,8 @@ class WatchAudio(
     }
 
     private companion object {
-        const val OUTBOX_FRAMES = 150 // 3 s of 20 ms audio frames
-        const val STATUS_EVERY_MS = 100L
+        const val OUTBOX_FRAMES = 25 // 1 s of 40 ms audio frames
+        const val STATUS_EVERY_MS = 250L
         const val REPORT_MS = 2_000L
         const val ANSWER_SILENCE = 0.002f
         const val ANSWER_HANGOVER = 5 // 200 ms

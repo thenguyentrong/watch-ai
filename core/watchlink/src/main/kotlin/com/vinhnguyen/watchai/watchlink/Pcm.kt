@@ -97,6 +97,22 @@ public class PcmQueue(
             buffer[(start + size) % maxSamples] = s
             size++
         }
+        (this as Object).notifyAll()
+    }
+
+    /** Waits (without spinning) until [count] samples are there; false after [timeoutMs]. */
+    @Synchronized
+    public fun awaitAtLeast(
+        count: Int,
+        timeoutMs: Long,
+    ): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (size < count) {
+            val left = deadline - System.currentTimeMillis()
+            if (left <= 0) return false
+            (this as Object).wait(left)
+        }
+        return true
     }
 
     @Synchronized

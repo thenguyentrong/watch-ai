@@ -1,21 +1,16 @@
 package com.vinhnguyen.watchai.wear
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -24,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.wear.compose.material3.MaterialTheme
 import com.vinhnguyen.watchai.wear.PhoneVoiceLink.Phase
+import kotlinx.coroutines.delay
 
 /**
  * Placeholder mascot until the real one is designed: a round face whose eyes and mouth show what
@@ -50,44 +46,21 @@ fun Face(
         }
     val skin by animateColorAsState(skinTarget, label = "skin")
     val features by animateColorAsState(featuresTarget, label = "features")
-    val talk = remember { Animatable(0f) }
-    LaunchedEffect(level) { talk.animateTo(level.coerceIn(0f, 1f), spring(stiffness = Spring.StiffnessMedium)) }
+    // Everything below animates only while something changes: an idle face draws nothing between
+    // blinks, so the watch CPU stays free for the audio (a 60 fps loop took 94% on the Watch5).
+    val talk by animateFloatAsState(level.coerceIn(0f, 1f), tween(90), label = "talk")
     val eyesOpen by animateFloatAsState(if (phase == Phase.IDLE) 0.15f else 1f, label = "eyesOpen")
     val lookUp by animateFloatAsState(if (phase == Phase.THINKING || phase == Phase.CONNECTING) 1f else 0f, label = "lookUp")
-    // Blinking and breathing only on the full screen; the always-on screen draws no motion.
-    val blink =
-        if (ambient) {
-            1f
-        } else {
-            rememberInfiniteTransition(label = "blink")
-                .animateFloat(
-                    initialValue = 1f,
-                    targetValue = 1f,
-                    animationSpec =
-                    infiniteRepeatable(
-                        keyframes {
-                            durationMillis = 4_000
-                            1f at 3_700
-                            0.1f at 3_800
-                            1f at 3_900
-                        },
-                        RepeatMode.Restart,
-                    ),
-                    label = "blinkValue",
-                ).value
+    var blinking by remember { mutableStateOf(false) }
+    LaunchedEffect(ambient) {
+        while (!ambient) {
+            delay(BLINK_EVERY_MS)
+            blinking = true
+            delay(BLINK_MS)
+            blinking = false
         }
-    val breathe =
-        if (ambient) {
-            1f
-        } else {
-            rememberInfiniteTransition(label = "breathe")
-                .animateFloat(
-                    initialValue = 0.97f,
-                    targetValue = 1.03f,
-                    animationSpec = infiniteRepeatable(tween(1_600), RepeatMode.Reverse),
-                    label = "breatheValue",
-                ).value
-        }
+    }
+    val blink by animateFloatAsState(if (blinking) 0.1f else 1f, tween(BLINK_MS.toInt() / 2), label = "blink")
 
     Canvas(modifier) {
         val r = size.minDimension / 2f
@@ -101,9 +74,9 @@ fun Face(
             drawLine(outline, Offset(c.x - r * 0.15f, c.y + r * 0.28f), Offset(c.x + r * 0.15f, c.y + r * 0.28f), strokeWidth = r * 0.04f)
             return@Canvas
         }
-        val ring = if (phase == Phase.LISTENING) 1f + 0.12f * talk.value else 1f
+        val ring = if (phase == Phase.LISTENING) 1f + 0.12f * talk else 1f
         drawCircle(skin.copy(alpha = 0.25f), radius = r * ring.coerceAtMost(1f))
-        drawCircle(skin, radius = r * 0.86f * (if (phase == Phase.IDLE) breathe else 1f))
+        drawCircle(skin, radius = r * 0.86f)
 
         // Eyes: squeezed when asleep, blinking now and then, raised while thinking.
         val eyeW = r * 0.16f
@@ -121,7 +94,7 @@ fun Face(
 
         // Mouth: a small smile, opening with the answer's loudness while speaking.
         val mouthW = r * 0.42f
-        val open = if (phase == Phase.SPEAKING) (0.06f + 0.3f * talk.value) else 0.05f
+        val open = if (phase == Phase.SPEAKING) (0.06f + 0.3f * talk) else 0.05f
         val mouthH = r * open
         drawRoundRect(
             features,
@@ -131,3 +104,6 @@ fun Face(
         )
     }
 }
+
+private const val BLINK_EVERY_MS = 4_000L
+private const val BLINK_MS = 120L
