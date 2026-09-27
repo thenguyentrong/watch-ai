@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.wear.compose.material3.MaterialTheme
 import com.vinhnguyen.watchai.wear.PhoneVoiceLink.Phase
 
@@ -33,6 +35,8 @@ fun Face(
     phase: Phase,
     level: Float,
     modifier: Modifier = Modifier,
+    /** Always-on screen: outline only, no fills or motion, to save power and avoid burn-in. */
+    ambient: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     // Face and features use a colour role and its "on" pair, so the eyes stay readable in every state.
@@ -50,31 +54,53 @@ fun Face(
     LaunchedEffect(level) { talk.animateTo(level.coerceIn(0f, 1f), spring(stiffness = Spring.StiffnessMedium)) }
     val eyesOpen by animateFloatAsState(if (phase == Phase.IDLE) 0.15f else 1f, label = "eyesOpen")
     val lookUp by animateFloatAsState(if (phase == Phase.THINKING || phase == Phase.CONNECTING) 1f else 0f, label = "lookUp")
-    val blink by rememberInfiniteTransition(label = "blink").animateFloat(
-        initialValue = 1f,
-        targetValue = 1f,
-        animationSpec =
-        infiniteRepeatable(
-            keyframes {
-                durationMillis = 4_000
-                1f at 3_700
-                0.1f at 3_800
-                1f at 3_900
-            },
-            RepeatMode.Restart,
-        ),
-        label = "blinkValue",
-    )
-    val breathe by rememberInfiniteTransition(label = "breathe").animateFloat(
-        initialValue = 0.97f,
-        targetValue = 1.03f,
-        animationSpec = infiniteRepeatable(tween(1_600), RepeatMode.Reverse),
-        label = "breatheValue",
-    )
+    // Blinking and breathing only on the full screen; the always-on screen draws no motion.
+    val blink =
+        if (ambient) {
+            1f
+        } else {
+            rememberInfiniteTransition(label = "blink")
+                .animateFloat(
+                    initialValue = 1f,
+                    targetValue = 1f,
+                    animationSpec =
+                    infiniteRepeatable(
+                        keyframes {
+                            durationMillis = 4_000
+                            1f at 3_700
+                            0.1f at 3_800
+                            1f at 3_900
+                        },
+                        RepeatMode.Restart,
+                    ),
+                    label = "blinkValue",
+                ).value
+        }
+    val breathe =
+        if (ambient) {
+            1f
+        } else {
+            rememberInfiniteTransition(label = "breathe")
+                .animateFloat(
+                    initialValue = 0.97f,
+                    targetValue = 1.03f,
+                    animationSpec = infiniteRepeatable(tween(1_600), RepeatMode.Reverse),
+                    label = "breatheValue",
+                ).value
+        }
 
     Canvas(modifier) {
         val r = size.minDimension / 2f
         val c = center
+        if (ambient) {
+            val outline = Color.White.copy(alpha = 0.7f)
+            drawCircle(outline, radius = r * 0.86f, style = Stroke(width = r * 0.03f))
+            listOf(-1f, 1f).forEach { side ->
+                drawLine(outline, Offset(c.x + side * r * 0.3f - r * 0.07f, c.y - r * 0.18f), Offset(c.x + side * r * 0.3f + r * 0.07f, c.y - r * 0.18f), strokeWidth = r * 0.04f)
+            }
+            drawLine(outline, Offset(c.x - r * 0.15f, c.y + r * 0.28f), Offset(c.x + r * 0.15f, c.y + r * 0.28f), strokeWidth = r * 0.04f)
+            return@Canvas
+        }
         val ring = if (phase == Phase.LISTENING) 1f + 0.12f * talk.value else 1f
         drawCircle(skin.copy(alpha = 0.25f), radius = r * ring.coerceAtMost(1f))
         drawCircle(skin, radius = r * 0.86f * (if (phase == Phase.IDLE) breathe else 1f))

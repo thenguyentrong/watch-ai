@@ -26,6 +26,7 @@ cyclonedx = "3.4.1"
 
 wear-compose = "1.7.0"
 play-services-wearable = "20.0.1"
+androidx-wear = "1.4.0"
 
 [libraries]
 kotlinx-coroutines-bom = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-bom", version.ref = "coroutines" }
@@ -73,6 +74,7 @@ androidx-test-runner = { module = "androidx.test:runner", version.ref = "android
 wear-compose-material3 = { module = "androidx.wear.compose:compose-material3", version.ref = "wear-compose" }
 wear-compose-foundation = { module = "androidx.wear.compose:compose-foundation", version.ref = "wear-compose" }
 play-services-wearable = { module = "com.google.android.gms:play-services-wearable", version.ref = "play-services-wearable" }
+androidx-wear = { module = "androidx.wear:wear", version.ref = "androidx-wear" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

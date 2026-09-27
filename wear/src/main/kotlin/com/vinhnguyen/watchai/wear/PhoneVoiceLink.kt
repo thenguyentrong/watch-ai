@@ -16,13 +16,14 @@ import android.os.SystemClock
 import android.util.Log
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.Wearable
-import com.vinhnguyen.watchai.opus.OpusDecoder
-import com.vinhnguyen.watchai.opus.OpusEncoder
+import com.vinhnguyen.watchai.watchlink.Adpcm
 import com.vinhnguyen.watchai.watchlink.Control
 import com.vinhnguyen.watchai.watchlink.Frame
 import com.vinhnguyen.watchai.watchlink.FrameCodec
+import com.vinhnguyen.watchai.watchlink.LinkStats
 import com.vinhnguyen.watchai.watchlink.Pcm
 import com.vinhnguyen.watchai.watchlink.PcmQueue
+import com.vinhnguyen.watchai.watchlink.SilenceGate
 import com.vinhnguyen.watchai.watchlink.WatchLink
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,7 +51,7 @@ import java.io.IOException
  * The watch side of a conversation: opens a voice channel to the phone app, sends the watch's
  * microphone and plays the answer on the watch speaker. The phone does the talking to ChatGPT.
  */
-class PhoneVoiceLink(
+class PhoneVoiceLink private constructor(
     context: Context,
 ) {
     enum class Phase { IDLE, CONNECTING, LISTENING, THINKING, SPEAKING, ERROR }
@@ -80,6 +81,7 @@ class PhoneVoiceLink(
     private var previousMode = AudioManager.MODE_NORMAL
 
     @Volatile private var flushRequested = false
+    private val stats = LinkStats()
 
     @Volatile private var micLevel = 0f
 
@@ -95,6 +97,7 @@ class PhoneVoiceLink(
             }
             answered = false
             _state.value = State(Phase.CONNECTING, detail = "Calling your phone…")
+            CallService.start(appContext)
             val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             scope = s
             s.launch { run(s) }
@@ -111,6 +114,7 @@ class PhoneVoiceLink(
             output = null
             s.coroutineContext[Job]?.cancelAndJoin()
             restoreAudio()
+            CallService.stop(appContext)
             _state.value = State()
         }
     }
@@ -151,32 +155,29 @@ class PhoneVoiceLink(
 
     /** Frames from the phone: the answer's audio, "stop playing" when the user interrupts, and status. */
     private fun receive(input: DataInputStream) {
-        val decoder = runCatching { OpusDecoder(WatchLink.SAMPLE_RATE) }.getOrNull()
-        try {
-            receiveFrames(input, decoder)
-        } finally {
-            decoder?.close()
-        }
-    }
-
-    private fun receiveFrames(
-        input: DataInputStream,
-        decoder: OpusDecoder?,
-    ) {
         while (true) {
             val frame = FrameCodec.read(input) ?: return
             answered = true
             when (frame) {
-                is Frame.Audio -> playback.offer(Pcm.toShorts(frame.pcm))
+                is Frame.Audio -> {
+                    stats.add("inPcm")
+                    playback.offer(Pcm.toShorts(frame.pcm))
+                }
 
-                is Frame.Opus -> decoder?.let { playback.offer(it.decode(frame.packet)) }
+                is Frame.Adpcm -> {
+                    stats.add("inAdpcm")
+                    playback.offer(Adpcm.decode(frame.packet))
+                }
 
                 Frame.Flush -> {
                     playback.clear()
                     flushRequested = true
                 }
 
-                is Frame.Message -> handle(frame.control)
+                is Frame.Message -> {
+                    stats.add("inMsg")
+                    handle(frame.control)
+                }
             }
         }
     }
@@ -214,8 +215,10 @@ class PhoneVoiceLink(
                 maxOf(minBuffer, WatchLink.FRAME_BYTES * 4),
             )
         val aec = if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(record.audioSessionId)?.apply { enabled = true } else null
-        // Opus keeps the Bluetooth link light (about 24 kbit/s); raw PCM only if the watch has no Opus codec.
-        val encoder = runCatching { OpusEncoder(WatchLink.SAMPLE_RATE) }.getOrNull()
+        // ADPCM keeps the Bluetooth link light; silence isn't sent (the phone feeds silence itself).
+        val encoder = Adpcm.Encoder()
+        val gate = SilenceGate(threshold = MIC_SILENCE, hangoverFrames = MIC_HANGOVER)
+        var previous: ShortArray? = null
         val frame = ShortArray(WatchLink.FRAME_SAMPLES)
         try {
             record.startRecording()
@@ -225,17 +228,24 @@ class PhoneVoiceLink(
                 micLevel = Pcm.level(frame, n)
                 if (_state.value.phase == Phase.LISTENING) _state.update { it.copy(level = micLevel) }
                 if (!answered) continue
-                val pcm = if (n == frame.size) frame else frame.copyOf(n)
-                if (encoder != null) {
-                    encoder.encode(pcm).forEach { FrameCodec.write(out, Frame.Opus(it)) }
+                val pcm = frame.copyOf(n)
+                val wasOpen = previous == null
+                if (gate.shouldSend(micLevel)) {
+                    val started = SystemClock.elapsedRealtime()
+                    // The frame before speech starts too, so soft first sounds aren't clipped.
+                    if (!wasOpen) previous?.let { FrameCodec.write(out, Frame.Adpcm(encoder.encode(it))) }
+                    FrameCodec.write(out, Frame.Adpcm(encoder.encode(pcm)))
+                    stats.add("outAdpcm")
+                    stats.max("writeMaxMs", SystemClock.elapsedRealtime() - started)
+                    previous = null
                 } else {
-                    FrameCodec.write(out, Frame.Audio(Pcm.toBytes(pcm)))
+                    stats.add("outSilent")
+                    previous = pcm
                 }
             }
         } finally {
             runCatching { record.stop() }
             aec?.release()
-            encoder?.close()
             record.release()
         }
     }
@@ -289,6 +299,7 @@ class PhoneVoiceLink(
         while (!answered) delay(50)
         while (true) {
             runCatching { FrameCodec.write(out, Frame.Message(Control("ping", at = SystemClock.elapsedRealtime()))) }
+            Log.i(TAG, "watch ${stats.drain()} playQueue=${playback.available}")
             delay(PING_MS)
         }
     }
@@ -306,8 +317,15 @@ class PhoneVoiceLink(
         audioManager.mode = previousMode
     }
 
-    private companion object {
-        const val PING_MS = 2_000L
-        const val TAG = "WatchLink"
+    companion object {
+        private const val PING_MS = 2_000L
+        private const val TAG = "WatchLink"
+        private const val MIC_SILENCE = 0.004f
+        private const val MIC_HANGOVER = 8 // 320 ms
+
+        @Volatile private var instance: PhoneVoiceLink? = null
+
+        /** The app's one link, shared by the screen and the call service. */
+        fun get(context: Context): PhoneVoiceLink = instance ?: synchronized(this) { instance ?: PhoneVoiceLink(context).also { instance = it } }
     }
 }

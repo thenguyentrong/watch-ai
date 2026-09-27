@@ -27,9 +27,9 @@ class WatchLinkTest {
     }
 
     @Test
-    fun `opus packets keep their bytes`() {
+    fun `adpcm packets keep their bytes`() {
         val packet = byteArrayOf(0x48, 1, 2, 3, 4)
-        assertThat((roundTrip(Frame.Opus(packet)).single() as Frame.Opus).packet).isEqualTo(packet)
+        assertThat((roundTrip(Frame.Adpcm(packet)).single() as Frame.Adpcm).packet).isEqualTo(packet)
     }
 
     @Test

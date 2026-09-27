@@ -1,15 +1,17 @@
 package com.vinhnguyen.watchai.watch
 
 import android.os.SystemClock
-import com.vinhnguyen.watchai.opus.OpusDecoder
-import com.vinhnguyen.watchai.opus.OpusEncoder
+import android.util.Log
 import com.vinhnguyen.watchai.voice.ExternalAudio
 import com.vinhnguyen.watchai.voice.VoicePhase
+import com.vinhnguyen.watchai.watchlink.Adpcm
 import com.vinhnguyen.watchai.watchlink.Control
 import com.vinhnguyen.watchai.watchlink.Frame
 import com.vinhnguyen.watchai.watchlink.FrameCodec
+import com.vinhnguyen.watchai.watchlink.LinkStats
 import com.vinhnguyen.watchai.watchlink.Pcm
 import com.vinhnguyen.watchai.watchlink.PcmQueue
+import com.vinhnguyen.watchai.watchlink.SilenceGate
 import com.vinhnguyen.watchai.watchlink.WatchLink
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -23,8 +25,8 @@ import kotlin.concurrent.thread
 /**
  * The watch as the microphone and speaker of a phone conversation, over one Data Layer channel.
  * The watch's mic audio waits in a small jitter buffer until WebRTC asks for it; the answer is
- * cut into 20 ms frames and queued to the watch. Two threads do the blocking channel I/O and the
- * Opus coding (raw PCM only if this phone has no Opus codec), so WebRTC's audio thread never waits.
+ * cut into 40 ms frames and queued to the watch. Two threads do the blocking channel I/O and the
+ * ADPCM coding, so WebRTC's audio thread never waits; the answer's silences aren't sent at all.
  */
 class WatchAudio(
     private val input: DataInputStream,
@@ -42,6 +44,7 @@ class WatchAudio(
 
     @Volatile private var closed = false
     private var writer: Thread? = null
+    private val stats = LinkStats()
 
     fun start() {
         outbox.offer(Frame.Message(Control("status", phase = "connecting")))
@@ -59,17 +62,26 @@ class WatchAudio(
     }
 
     private fun readLoop() {
-        val decoder = runCatching { OpusDecoder(WatchLink.SAMPLE_RATE) }.getOrNull()
         try {
             while (!closed) {
                 when (val frame = FrameCodec.read(input) ?: break) {
-                    is Frame.Audio -> mic.offer(Pcm.toShorts(frame.pcm))
+                    is Frame.Audio -> {
+                        stats.add("inPcm")
+                        mic.offer(Pcm.toShorts(frame.pcm))
+                    }
 
-                    is Frame.Opus -> decoder?.let { mic.offer(it.decode(frame.packet)) }
+                    is Frame.Adpcm -> {
+                        stats.add("inAdpcm")
+                        mic.offer(Adpcm.decode(frame.packet))
+                    }
 
                     is Frame.Message ->
                         when (frame.control.type) {
-                            "ping" -> outbox.offer(Frame.Message(Control("pong", at = frame.control.at)))
+                            "ping" -> {
+                                stats.add("inPing")
+                                if (!outbox.offer(Frame.Message(Control("pong", at = frame.control.at)))) stats.add("pongDropped")
+                            }
+
                             "bye" -> break
                         }
 
@@ -78,29 +90,41 @@ class WatchAudio(
             }
         } catch (e: IOException) {
             // The watch went away; handled below.
-        } finally {
-            decoder?.close()
         }
         if (!closed) onEnd()
     }
 
     private fun writeLoop() {
-        val encoder = runCatching { OpusEncoder(WatchLink.SAMPLE_RATE) }.getOrNull()
+        val encoder = Adpcm.Encoder()
+        val gate = SilenceGate(threshold = ANSWER_SILENCE, hangoverFrames = ANSWER_HANGOVER)
+        var lastReport = SystemClock.elapsedRealtime()
         try {
             while (!closed) {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastReport >= REPORT_MS) {
+                    lastReport = now
+                    Log.i(TAG, "phone ${stats.drain()} outbox=${outbox.size} micQueue=${mic.available}")
+                }
                 val frame = outbox.poll(200, TimeUnit.MILLISECONDS) ?: continue
-                if (frame is Frame.Audio && encoder != null) {
-                    encoder.encode(Pcm.toShorts(frame.pcm)).forEach { FrameCodec.write(output, Frame.Opus(it)) }
+                val started = SystemClock.elapsedRealtime()
+                if (frame is Frame.Audio) {
+                    val pcm = Pcm.toShorts(frame.pcm)
+                    if (gate.shouldSend(Pcm.level(pcm))) {
+                        FrameCodec.write(output, Frame.Adpcm(encoder.encode(pcm)))
+                        stats.add("outAdpcm")
+                    } else {
+                        stats.add("outSilent")
+                    }
                 } else {
                     FrameCodec.write(output, frame)
+                    stats.add(if (frame is Frame.Audio) "outPcm" else "outOther")
                 }
+                stats.max("writeMaxMs", SystemClock.elapsedRealtime() - started)
             }
         } catch (e: IOException) {
             if (!closed) onEnd()
         } catch (e: InterruptedException) {
             // close()
-        } finally {
-            encoder?.close()
         }
     }
 
@@ -137,7 +161,7 @@ class WatchAudio(
                 pending[pendingCount++] = s
                 if (pendingCount == pending.size) {
                     // If the link can't keep up, drop audio rather than fall ever further behind.
-                    outbox.offer(Frame.Audio(Pcm.toBytes(pending)))
+                    if (!outbox.offer(Frame.Audio(Pcm.toBytes(pending)))) stats.add("audioDropped")
                     pendingCount = 0
                 }
             }
@@ -163,5 +187,9 @@ class WatchAudio(
     private companion object {
         const val OUTBOX_FRAMES = 150 // 3 s of 20 ms audio frames
         const val STATUS_EVERY_MS = 100L
+        const val REPORT_MS = 2_000L
+        const val ANSWER_SILENCE = 0.002f
+        const val ANSWER_HANGOVER = 5 // 200 ms
+        const val TAG = "WatchLink"
     }
 }

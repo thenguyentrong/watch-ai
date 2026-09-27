@@ -4,7 +4,9 @@ import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,22 +34,45 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.wear.ambient.AmbientLifecycleObserver
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
 import com.vinhnguyen.watchai.wear.PhoneVoiceLink.Phase
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 class WearActivity : ComponentActivity() {
+    private val ambient = MutableStateFlow(false)
+
+    private val ambientObserver =
+        AmbientLifecycleObserver(
+            this,
+            object : AmbientLifecycleObserver.AmbientLifecycleCallback {
+                override fun onEnterAmbient(ambientDetails: AmbientLifecycleObserver.AmbientDetails) {
+                    ambient.value = true
+                }
+
+                override fun onExitAmbient() {
+                    ambient.value = false
+                }
+            },
+        )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { WatchScreen() } }
+        // Wrist down: stay on the face in ambient mode instead of going back to the watch face.
+        lifecycle.addObserver(ambientObserver)
+        setContent {
+            val isAmbient by ambient.collectAsStateWithLifecycle()
+            MaterialTheme { WatchScreen(ambient = isAmbient) }
+        }
     }
 }
 
 class WatchViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
-    val link = PhoneVoiceLink(application)
+    val link = PhoneVoiceLink.get(application)
 
     fun toggle() {
         viewModelScope.launch {
@@ -57,22 +81,25 @@ class WatchViewModel(
         }
     }
 
-    override fun onCleared() {
-        // viewModelScope is gone; the link cleans up on its own scope.
-        link.release()
-    }
+    // No onCleared clean-up: a conversation outlives the screen (the call service keeps it) and
+    // ends from the face, the notification's End action, or the phone.
 }
 
 /** The whole watch app for now: the face. Tap it to start or end a conversation with the phone. */
 @Composable
-private fun WatchScreen(vm: WatchViewModel = viewModel()) {
+private fun WatchScreen(
+    ambient: Boolean,
+    vm: WatchViewModel = viewModel(),
+) {
     val state by vm.link.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val view = LocalView.current
+    val activity = LocalActivity.current
     val active = state.phase != Phase.IDLE && state.phase != Phase.ERROR
+    // The screen stays on for the whole conversation.
     DisposableEffect(active) {
-        view.keepScreenOn = active
-        onDispose { view.keepScreenOn = false }
+        val window = activity?.window
+        if (active) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) vm.toggle() }
     val onTap = {
@@ -87,7 +114,8 @@ private fun WatchScreen(vm: WatchViewModel = viewModel()) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Face(
                 phase = state.phase,
-                level = state.level,
+                level = if (ambient) 0f else state.level,
+                ambient = ambient,
                 modifier =
                 Modifier
                     .size(120.dp)

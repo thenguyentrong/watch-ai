@@ -39,7 +39,6 @@ kotlin {
 
 dependencies {
     implementation(project(":core:watchlink"))
-    implementation(project(":core:opus"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.wear.compose.material3)
@@ -49,6 +48,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.play.services.wearable)
+    implementation(libs.androidx.wear)
     implementation(platform(libs.kotlinx.coroutines.bom))
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)
