@@ -6,3 +6,5 @@ gradlew text eol=lf
 *.jar binary
 *.png binary
 *.webp binary
+# Read byte for byte by the watch app's wake word (native code): no line-ending conversion.
+wear/src/main/assets/** -text
