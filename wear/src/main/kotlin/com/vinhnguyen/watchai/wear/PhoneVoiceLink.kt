@@ -107,10 +107,10 @@ class PhoneVoiceLink private constructor(
     /** The phone said goodbye: the conversation ended normally (hung up, or nobody talked for a while). */
     @Volatile private var phoneHungUp = false
 
-    /** The app's screen is showing (set by the activity): only then can it open the watch's clock. */
+    /** The app's screen is showing (set by the activity): only then can it open the watch's clock for the phone. */
     @Volatile var onScreen = false
 
-    private val clock = ClockApps(appContext)
+    private val actions = WatchActions(appContext)
 
     suspend fun start() {
         lifecycle.withLock {
@@ -230,7 +230,7 @@ class PhoneVoiceLink private constructor(
 
             "bye" -> phoneHungUp = true
 
-            "timer", "alarm" -> outbox.offer(Frame.Message(Control("done", id = control.id, text = clock.set(control, onScreen))))
+            "timer", "alarm", "battery" -> outbox.offer(Frame.Message(Control("done", id = control.id, text = actions.run(control, onScreen))))
 
             "route" -> {
                 val speaker = control.speaker ?: true

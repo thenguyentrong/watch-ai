@@ -21,7 +21,7 @@ public object PromptStyle {
 
     /** For brains that can't use tools when the app offers actions, so they don't pretend. */
     public const val NO_ACTIONS: String =
-        "You can't take actions on the phone in this mode (no notes, calendar, reminders, timers or alarms). " +
+        "You can't take actions on the phone in this mode (no notes, calendar, reminders, timers, alarms, music, volume or other phone controls). " +
             "If asked, say briefly that this needs ChatGPT."
 
     /** The system prompt for a brain that can't use the request's tools. */

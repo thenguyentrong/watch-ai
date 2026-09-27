@@ -1,8 +1,11 @@
 package com.vinhnguyen.watchai.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -358,7 +361,10 @@ private fun WatchCard(vm: VoiceLabViewModel) {
 @Composable
 private fun ActionsCard(vm: VoiceLabViewModel) {
     val calendarAllowed by vm.calendarAllowed.collectAsStateWithLifecycle()
+    val clockFromPocket by vm.clockFromPocket.collectAsStateWithLifecycle()
+    val doNotDisturbAllowed by vm.doNotDisturbAllowed.collectAsStateWithLifecycle()
     val notes by vm.notes.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var showNotes by rememberSaveable { mutableStateOf(false) }
     val calendarPermission =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.refreshPermissions() }
@@ -366,8 +372,9 @@ private fun ActionsCard(vm: VoiceLabViewModel) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Things it can do on this phone", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Ask with ChatGPT voice or in Chat, for example \"add milk to my notes\", \"remind me at six to call Mum\" " +
-                    "or \"what's on my calendar tomorrow?\". What you ask to add or read goes to ChatGPT on your account.",
+                "Ask with ChatGPT voice or in Chat, for example \"add milk to my notes\", \"remind me at six to call Mum\", " +
+                    "\"where's my phone?\", \"pause the music\" or \"what's on my calendar tomorrow?\". " +
+                    "What you ask to add or read goes to ChatGPT on your account.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -376,7 +383,20 @@ private fun ActionsCard(vm: VoiceLabViewModel) {
                     Button(onClick = { calendarPermission.launch(PhoneActions.CALENDAR_PERMISSIONS) }) { Text("Allow") }
                 }
             }
-            ActionRow("Timers and alarms", "On the watch when you talk through it, else in the phone's Clock app")
+            ActionRow("Timers and alarms", "On the device you talk through, or where you say")
+            ActionRow("Phone clock from your pocket", if (clockFromPocket) "Allowed" else "Off: the phone's Clock only opens while this app is on screen") {
+                if (!clockFromPocket) {
+                    Button(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.fromParts("package", context.packageName, null)))
+                    }) { Text("Allow") }
+                }
+            }
+            ActionRow("Find my phone, music, volume, battery", "Work with the phone in your pocket")
+            ActionRow("Do Not Disturb and silent mode", if (doNotDisturbAllowed) "Allowed" else "Needs your OK") {
+                if (!doNotDisturbAllowed) {
+                    Button(onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) }) { Text("Allow") }
+                }
+            }
             ActionRow("Notes", if (notes.isEmpty()) "None yet · kept encrypted in this app" else "${notes.size} · kept encrypted in this app") {
                 if (notes.isNotEmpty()) {
                     TextButton(onClick = { showNotes = !showNotes }) { Text(if (showNotes) "Hide" else "Show") }

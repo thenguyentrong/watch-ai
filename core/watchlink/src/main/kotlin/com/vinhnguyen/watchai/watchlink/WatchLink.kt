@@ -49,7 +49,8 @@ public sealed interface Frame {
  * "route" (phone to watch: [mic] true = the watch is the microphone, [speaker] true = the watch
  * plays the answer; with a headset on the phone both are false and the watch only shows the face),
  * "timer" / "alarm" (phone to watch: set one on the watch's own clock, [seconds] or [hour]:[minute],
- * with an optional [label]) answered by "done" (watch to phone: the same [id], the outcome in [text]).
+ * with an optional [label]) and "battery" (phone to watch: its battery), each answered by "done"
+ * (watch to phone: the same [id], the outcome in [text]).
  */
 @Serializable
 public data class Control(

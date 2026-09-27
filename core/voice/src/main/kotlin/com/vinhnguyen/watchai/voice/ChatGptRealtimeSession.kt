@@ -636,7 +636,8 @@ class ChatGptRealtimeSession(
                 "Don't end every reply with a question or an offer to help. No lists. " +
                 "Answer in the language the user speaks. " +
                 "When a question needs facts you are not sure of, current information, or the exact time, or when the user wants " +
-                "something done on their phone (a note, a calendar event, a reminder, a timer or an alarm, or reading their notes or calendar), " +
+                "something done on their phone or watch (a note, a calendar event, a reminder, a timer or an alarm, music or volume, " +
+                "the ringer or Do Not Disturb, ringing the phone to find it, battery levels, or reading their notes or calendar), " +
                 "delegate it to the client and wait for the result, then say the answer in your own words. Never claim something was done " +
                 "unless the result says so. If a request misses something it needs, like how long a timer should run, ask for that first."
     }

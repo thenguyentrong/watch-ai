@@ -22,14 +22,18 @@ import java.time.ZoneOffset
 /**
  * What the assistant can do on this phone: notes (kept in this app), calendar events and reminders
  * (the phone's calendar, so they sync to the user's Google or Samsung calendar and show on the
- * watch), timers and alarms ([clock]: the watch's during a watch call, else the phone's). Only
- * adding and reading - nothing is deleted or sent anywhere. Every argument is checked; results are
- * short plain sentences for the model.
+ * watch), timers and alarms (on the device the user talks through, or where they say), and
+ * [PhoneControls] that work from a pocket: find my phone, music, volume, ringer, Do Not Disturb,
+ * battery. Nothing is deleted or sent anywhere. Every argument is checked; results are short plain
+ * sentences for the model.
  */
 class PhoneActions(
     context: Context,
     private val notes: NoteStore,
-    private val clock: Clock,
+    private val controls: PhoneControls,
+    private val phoneClock: Clock,
+    /** Set while the user talks through the watch: timers and alarms go there unless they ask for the phone. */
+    private val watch: Watch? = null,
     private val logger: BrainLogger = BrainLogger.None,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
 ) : Toolbox {
@@ -53,6 +57,13 @@ class PhoneActions(
                 ADD_REMINDER -> calendar(name) { addReminder(args) }
                 SET_TIMER -> setTimer(args)
                 SET_ALARM -> setAlarm(args)
+                RING_PHONE -> outcome(name, controls.ring(ActionArgs.int(args, "seconds", 5..60) ?: RING_SECONDS))
+                STOP_RINGING -> outcome(name, controls.stopRinging())
+                MEDIA -> ActionArgs.choice(args, "command", PhoneControls.MEDIA_KEYS.keys)?.let { outcome(name, controls.media(it)) } ?: invalid(name, "command")
+                SET_VOLUME -> setVolume(args)
+                SET_RINGER -> ActionArgs.choice(args, "mode", PhoneControls.RINGER_MODES.keys)?.let { outcome(name, controls.ringer(it)) } ?: invalid(name, "mode")
+                DO_NOT_DISTURB -> ActionArgs.bool(args, "on")?.let { outcome(name, controls.doNotDisturb(it)) } ?: invalid(name, "on")
+                DEVICE_STATUS -> outcome(name, listOfNotNull(controls.status(), watch?.battery()).joinToString("; "))
                 else -> done(name, "unknown", "error: there is no action called $name")
             }
         } catch (e: SecurityException) {
@@ -127,19 +138,40 @@ class PhoneActions(
 
     private suspend fun setTimer(args: JsonObject): String {
         val seconds = ActionArgs.int(args, "seconds", 1..86_400) ?: return done(SET_TIMER, "invalid", "error: seconds must be between 1 and 86400")
-        return clocked(SET_TIMER, clock.setTimer(seconds, ActionArgs.text(args, "label", TITLE_MAX)))
+        val clock = clockFor(args) ?: return done(SET_TIMER, "invalid", NO_WATCH)
+        return outcome(SET_TIMER, clock.setTimer(seconds, ActionArgs.text(args, "label", TITLE_MAX)))
     }
 
     private suspend fun setAlarm(args: JsonObject): String {
         val hour = ActionArgs.int(args, "hour", 0..23) ?: return done(SET_ALARM, "invalid", "error: hour must be 0 to 23")
         val minute = ActionArgs.int(args, "minute", 0..59) ?: 0
-        return clocked(SET_ALARM, clock.setAlarm(hour, minute, ActionArgs.text(args, "label", TITLE_MAX)))
+        val clock = clockFor(args) ?: return done(SET_ALARM, "invalid", NO_WATCH)
+        return outcome(SET_ALARM, clock.setAlarm(hour, minute, ActionArgs.text(args, "label", TITLE_MAX)))
     }
 
-    private fun clocked(
+    /** Where the user said ("on my phone"), else the device they talk through; null if they asked for a watch that isn't in the conversation. */
+    private fun clockFor(args: JsonObject): Clock? = when (ActionArgs.choice(args, "on", PLACES)) {
+        "phone" -> phoneClock
+        "watch" -> watch
+        else -> watch ?: phoneClock
+    }
+
+    private fun setVolume(args: JsonObject): String {
+        val level = ActionArgs.int(args, "level", 0..100)
+        val change = ActionArgs.choice(args, "change", setOf("up", "down"))
+        if (level == null && change == null) return done(SET_VOLUME, "invalid", "error: give a level from 0 to 100, or change up or down")
+        return outcome(SET_VOLUME, controls.volume(level, change?.let { it == "up" }))
+    }
+
+    private fun outcome(
         tool: String,
         result: String,
-    ) = done(tool, if (result.startsWith("ok")) "ok" else "failed", result)
+    ) = done(tool, if (result.startsWith("error")) "failed" else "ok", result)
+
+    private fun invalid(
+        tool: String,
+        key: String,
+    ) = done(tool, "invalid", "error: $key is missing or not one of the allowed values")
 
     private suspend fun insertEvent(
         title: String,
@@ -276,6 +308,13 @@ class PhoneActions(
         const val ADD_REMINDER = "add_reminder"
         const val SET_TIMER = "set_timer"
         const val SET_ALARM = "set_alarm"
+        const val RING_PHONE = "ring_phone"
+        const val STOP_RINGING = "stop_ringing"
+        const val MEDIA = "media_control"
+        const val SET_VOLUME = "set_volume"
+        const val SET_RINGER = "set_ringer"
+        const val DO_NOT_DISTURB = "do_not_disturb"
+        const val DEVICE_STATUS = "device_status"
 
         val CALENDAR_PERMISSIONS = arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
 
@@ -284,8 +323,14 @@ class PhoneActions(
         private const val REMINDER_MINUTES = 15L
         private const val LIST_MAX_DAYS = 31L
         private const val LIST_MAX_EVENTS = 15
+        private const val RING_SECONDS = 30
+        private val PLACES = setOf("watch", "phone")
+        private const val NO_WATCH = "error: timers and alarms only go on the watch while the user talks through it; offer the phone instead"
 
         private const val LOCAL_TIME = "Local date and time without a zone, like 2026-09-28T15:00, or just a date for all day."
+        private const val ON =
+            """"on":{"type":"string","enum":["watch","phone"],"description":"Only when the user says where; otherwise leave it out and it goes to the device they are talking through."}"""
+        private const val NO_ARGS = """{"type":"object","properties":{},"additionalProperties":false}"""
 
         val SPECS =
             listOf(
@@ -317,14 +362,47 @@ class PhoneActions(
                 ToolSpec(
                     SET_TIMER,
                     "Start a countdown timer for the length the user said; never guess one (if they didn't say how long, ask). " +
-                        "When the user talks through their watch it rings on the watch, otherwise in the phone's clock app.",
-                    """{"type":"object","properties":{"seconds":{"type":"integer","minimum":1,"maximum":86400},"label":{"type":"string"}},"required":["seconds"],"additionalProperties":false}""",
+                        "It rings on the device the user is talking through (their watch, or the phone) unless they say where.",
+                    """{"type":"object","properties":{"seconds":{"type":"integer","minimum":1,"maximum":86400},"label":{"type":"string"},$ON},"required":["seconds"],"additionalProperties":false}""",
                 ),
                 ToolSpec(
                     SET_ALARM,
                     "Set an alarm for the next time it is this hour and minute; never guess a time (if the user didn't say one, ask). " +
-                        "It is set on the watch when the user talks through it, otherwise in the phone's clock app.",
-                    """{"type":"object","properties":{"hour":{"type":"integer","minimum":0,"maximum":23},"minute":{"type":"integer","minimum":0,"maximum":59},"label":{"type":"string"}},"required":["hour"],"additionalProperties":false}""",
+                        "It is set on the device the user is talking through (their watch, or the phone) unless they say where.",
+                    """{"type":"object","properties":{"hour":{"type":"integer","minimum":0,"maximum":23},"minute":{"type":"integer","minimum":0,"maximum":59},"label":{"type":"string"},$ON},"required":["hour"],"additionalProperties":false}""",
+                ),
+                ToolSpec(
+                    RING_PHONE,
+                    "Ring the phone loudly, even on silent, so the user can find it ('where's my phone?'). " +
+                        "It stops by itself, from its notification, or with stop_ringing.",
+                    """{"type":"object","properties":{"seconds":{"type":"integer","minimum":5,"maximum":60,"description":"Default 30."}},"additionalProperties":false}""",
+                ),
+                ToolSpec(STOP_RINGING, "Stop the phone ringing (after ring_phone).", NO_ARGS),
+                ToolSpec(
+                    MEDIA,
+                    "Control what plays on the phone, also in the user's earbuds (music, podcasts, videos): play, pause, next or previous.",
+                    """{"type":"object","properties":{"command":{"type":"string","enum":["play","pause","next","previous"]}},"required":["command"],"additionalProperties":false}""",
+                ),
+                ToolSpec(
+                    SET_VOLUME,
+                    "Set the phone's media volume (music, videos, the user's earbuds): a level in percent, or one step up or down.",
+                    """{"type":"object","properties":{"level":{"type":"integer","minimum":0,"maximum":100},"change":{"type":"string","enum":["up","down"]}},"additionalProperties":false}""",
+                ),
+                ToolSpec(
+                    SET_RINGER,
+                    "Switch the phone's ringer for calls and notifications: normal (sound on), vibrate or silent.",
+                    """{"type":"object","properties":{"mode":{"type":"string","enum":["normal","vibrate","silent"]}},"required":["mode"],"additionalProperties":false}""",
+                ),
+                ToolSpec(
+                    DO_NOT_DISTURB,
+                    "Turn Do Not Disturb on the phone on or off (a Galaxy watch usually follows the phone).",
+                    """{"type":"object","properties":{"on":{"type":"boolean"}},"required":["on"],"additionalProperties":false}""",
+                ),
+                ToolSpec(
+                    DEVICE_STATUS,
+                    "Battery of the phone (and of the watch while the user talks through it) and whether it is charging, " +
+                        "plus the phone's ringer and Do Not Disturb.",
+                    NO_ARGS,
                 ),
             )
     }

@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
+import android.provider.Settings
 
 /** Where timers and alarms ring. Results are short sentences for the model: "ok: …" or "error: …". */
 interface Clock {
@@ -19,10 +20,15 @@ interface Clock {
     ): String
 }
 
+/** The watch while the user talks through it: its own clock, and its battery. */
+interface Watch : Clock {
+    suspend fun battery(): String
+}
+
 /**
  * The phone's clock app, opened with an activity intent. Android silently drops those from apps in
  * the background (a watch call with the phone in a pocket: the timer "succeeded" and never
- * appeared, 27.09), so this only tries while the app is on screen.
+ * appeared, 27.09), unless the user lets the app appear on top of other apps.
  */
 class PhoneClock(
     context: Context,
@@ -30,13 +36,16 @@ class PhoneClock(
 ) : Clock {
     private val appContext = context.applicationContext
 
+    /** "Appear on top" is on: the clock opens with the phone in a pocket too. */
+    fun worksFromPocket(): Boolean = Settings.canDrawOverlays(appContext)
+
     override suspend fun setTimer(
         seconds: Int,
         label: String?,
     ): String {
-        if (!onScreen()) return IN_BACKGROUND
+        if (!canOpen()) return IN_BACKGROUND
         val intent = Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, seconds)
-        return if (open(intent, label)) "ok: timer set for $seconds seconds" else "error: no clock app took the timer"
+        return if (open(intent, label)) "ok: timer set on the phone for $seconds seconds" else "error: no clock app took the timer"
     }
 
     override suspend fun setAlarm(
@@ -44,13 +53,15 @@ class PhoneClock(
         minute: Int,
         label: String?,
     ): String {
-        if (!onScreen()) return IN_BACKGROUND
+        if (!canOpen()) return IN_BACKGROUND
         val intent =
             Intent(AlarmClock.ACTION_SET_ALARM)
                 .putExtra(AlarmClock.EXTRA_HOUR, hour)
                 .putExtra(AlarmClock.EXTRA_MINUTES, minute)
-        return if (open(intent, label)) "ok: alarm set for ${"%02d:%02d".format(hour, minute)}" else "error: no clock app took the alarm"
+        return if (open(intent, label)) "ok: alarm set on the phone for ${"%02d:%02d".format(hour, minute)}" else "error: no clock app took the alarm"
     }
+
+    private fun canOpen() = onScreen() || worksFromPocket()
 
     private fun open(
         intent: Intent,
@@ -65,6 +76,8 @@ class PhoneClock(
     }
 
     private companion object {
-        const val IN_BACKGROUND = "error: the phone can't open its clock app while Watch AI isn't on its screen. Ask the user to open the app and try again."
+        const val IN_BACKGROUND =
+            "error: the phone can't open its clock app while Watch AI isn't on its screen. Offer to set it on the watch, or tell the " +
+                "user to switch on \"Phone clock from your pocket\" once in the Watch AI phone app (Voice tab)."
     }
 }

@@ -7,6 +7,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.vinhnguyen.watchai.actions.NoteStore
 import com.vinhnguyen.watchai.actions.PhoneActions
 import com.vinhnguyen.watchai.actions.PhoneClock
+import com.vinhnguyen.watchai.actions.PhoneControls
 import com.vinhnguyen.watchai.brain.BrainRouter
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptBrain
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
@@ -67,7 +68,9 @@ class AppGraph(
     // Notes get their own vault and key: signing out of ChatGPT never touches them.
     private val notesVault = KeystoreVault(appContext, logger, alias = "watchai_notes_master_v1", dirName = "notes")
     val notes = NoteStore(notesVault)
-    val actions = PhoneActions(appContext, notes, PhoneClock(appContext) { foreground.isForeground() }, logger)
+    val controls = PhoneControls(appContext, scope)
+    val phoneClock = PhoneClock(appContext) { foreground.isForeground() }
+    val actions = PhoneActions(appContext, notes, controls, phoneClock, logger = logger)
     val watchCalls = WatchCalls(this)
 
     /** "Delete everything": tokens, keys, reports, notes, models, settings. */

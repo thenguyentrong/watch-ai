@@ -4,21 +4,38 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.os.BatteryManager
 import android.provider.AlarmClock
 import com.vinhnguyen.watchai.watchlink.Control
 
 /**
- * Sets timers and alarms in the watch's own clock apps when the phone asks. Android only lets an
- * app open another app's screen while it is on screen itself, which it is during a conversation.
+ * What the watch does itself when the phone asks during a call: timers and alarms in its own clock
+ * apps, and telling its battery. Android only lets an app open another app's screen while it is on
+ * screen itself, which it is during a conversation.
  */
-internal class ClockApps(
+internal class WatchActions(
     context: Context,
 ) {
     private val appContext = context.applicationContext
 
     /** A short sentence for the model: "ok: …" or "error: …". */
+    fun run(
+        request: Control,
+        onScreen: Boolean,
+    ): String = when (request.type) {
+        "timer", "alarm" -> clock(request, onScreen)
+        "battery" -> battery()
+        else -> "error: the watch can't do ${request.type}"
+    }
+
+    private fun battery(): String {
+        val battery = appContext.getSystemService(BatteryManager::class.java)
+        val charging = if (battery.isCharging) ", charging" else ""
+        return "watch: battery ${battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}%$charging"
+    }
+
     @SuppressLint("WearRecents") // another app's screen, started from the app context: it needs a task
-    fun set(
+    private fun clock(
         request: Control,
         onScreen: Boolean,
     ): String {

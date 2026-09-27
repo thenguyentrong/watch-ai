@@ -1,15 +1,16 @@
 package com.vinhnguyen.watchai.watch
 
-import com.vinhnguyen.watchai.actions.Clock
+import com.vinhnguyen.watchai.actions.Watch
 import com.vinhnguyen.watchai.watchlink.Control
 
 /**
- * Timers and alarms on the watch's own clock during a watch call: they ring on the wrist, and the
- * watch app is on screen, so Android lets it open the clock (the phone in a pocket can't).
+ * The watch during a watch call, asked over the link: timers and alarms on its own clock (they
+ * ring on the wrist, and the watch app is on screen, so Android lets it open the clock), and its
+ * battery.
  */
-class WatchClock(
+class WatchOnCall(
     private val watch: WatchAudio,
-) : Clock {
+) : Watch {
     override suspend fun setTimer(
         seconds: Int,
         label: String?,
@@ -20,6 +21,8 @@ class WatchClock(
         minute: Int,
         label: String?,
     ): String = watch.ask(Control("alarm", hour = hour, minute = minute, label = label)) ?: NO_ANSWER
+
+    override suspend fun battery(): String = watch.ask(Control("battery")) ?: NO_ANSWER
 
     private companion object {
         const val NO_ANSWER = "error: the watch didn't answer"

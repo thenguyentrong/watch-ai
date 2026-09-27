@@ -17,6 +17,7 @@ import java.util.Locale
 /** Reads and checks what the model passed to an action. Model output is untrusted: anything odd is rejected. */
 object ActionArgs {
     private val json = Json { ignoreUnknownKeys = true }
+    private const val CHOICE_MAX = 40
 
     fun parse(arguments: String): JsonObject? = runCatching { json.parseToJsonElement(arguments).jsonObject }.getOrNull()
 
@@ -41,6 +42,13 @@ object ActionArgs {
         args: JsonObject,
         key: String,
     ): Boolean? = (args[key] as? JsonPrimitive)?.booleanOrNull
+
+    /** One of [allowed] (any case), lower-cased; null if missing or anything else. */
+    fun choice(
+        args: JsonObject,
+        key: String,
+        allowed: Set<String>,
+    ): String? = text(args, key, CHOICE_MAX)?.lowercase(Locale.ROOT)?.takeIf { it in allowed }
 
     sealed interface When {
         data class At(

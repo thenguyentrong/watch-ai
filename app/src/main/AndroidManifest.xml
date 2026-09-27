@@ -11,6 +11,11 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- Find my phone vibrates too. Do Not Disturb, silent mode and "appear on top" (the phone's clock
+         from a pocket) only work once the user allows them in settings, from the Voice tab. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Watch calls with the phone app closed: a connected-device service, started when Play
          services wakes the app for the watch's voice channel. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
@@ -75,6 +80,10 @@
                     android:scheme="wear" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".actions.StopRingingReceiver"
+            android:exported="false" />
 
         <service
             android:name=".watch.WatchCallService"

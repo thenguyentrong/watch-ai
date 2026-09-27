@@ -68,10 +68,14 @@ class VoiceLabViewModel(
     private var visible = false
     private var stopLater: Job? = null
 
-    /** The user's notes (newest last) and whether calendar actions are allowed, for "Things it can do". */
+    /** The user's notes (newest last) and which actions the user has allowed, for "Things it can do". */
     val notes: StateFlow<List<NoteStore.Note>> = graph.notes.notes
     private val _calendarAllowed = MutableStateFlow(graph.actions.calendarAllowed())
     val calendarAllowed: StateFlow<Boolean> = _calendarAllowed.asStateFlow()
+    private val _clockFromPocket = MutableStateFlow(graph.phoneClock.worksFromPocket())
+    val clockFromPocket: StateFlow<Boolean> = _clockFromPocket.asStateFlow()
+    private val _doNotDisturbAllowed = MutableStateFlow(graph.controls.doNotDisturbAllowed())
+    val doNotDisturbAllowed: StateFlow<Boolean> = _doNotDisturbAllowed.asStateFlow()
 
     init {
         viewModelScope.launch { runCatching { graph.notes.list() } }
@@ -79,6 +83,8 @@ class VoiceLabViewModel(
 
     fun refreshPermissions() {
         _calendarAllowed.value = graph.actions.calendarAllowed()
+        _clockFromPocket.value = graph.phoneClock.worksFromPocket()
+        _doNotDisturbAllowed.value = graph.controls.doNotDisturbAllowed()
     }
 
     fun deleteNote(id: Long) {

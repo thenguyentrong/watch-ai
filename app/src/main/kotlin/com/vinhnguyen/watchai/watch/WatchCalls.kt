@@ -93,8 +93,8 @@ class WatchCalls(
                     graph.session,
                     ChatGptHttp.authClient(),
                     graph.chatGpt,
-                    // Timers and alarms go to the watch: it's on screen and on the wrist.
-                    PhoneActions(graph.appContext, graph.notes, WatchClock(watch), graph.logger),
+                    // Timers and alarms go to the watch unless the user asks for the phone: it's on the wrist, and on screen.
+                    PhoneActions(graph.appContext, graph.notes, graph.controls, graph.phoneClock, WatchOnCall(watch), graph.logger),
                     graph.logger,
                     voice = graph.settings.voice,
                     external = watch,

@@ -37,6 +37,17 @@ class ActionArgsTest {
     }
 
     @Test
+    fun `a choice is one of the allowed words, in any case`() {
+        val args = ActionArgs.parse("""{"on":"Phone","mode":"loud","n":3,"blank":" watch "}""")!!
+        val places = setOf("watch", "phone")
+        assertThat(ActionArgs.choice(args, "on", places)).isEqualTo("phone")
+        assertThat(ActionArgs.choice(args, "blank", places)).isEqualTo("watch")
+        assertThat(ActionArgs.choice(args, "mode", setOf("normal", "vibrate", "silent"))).isNull()
+        assertThat(ActionArgs.choice(args, "n", places)).isNull()
+        assertThat(ActionArgs.choice(args, "missing", places)).isNull()
+    }
+
+    @Test
     fun `numbers must be whole and in range`() {
         val args = ActionArgs.parse("""{"s":90,"big":100000,"f":1.5,"t":"60"}""")!!
         assertThat(ActionArgs.int(args, "s", 1..86_400)).isEqualTo(90)
