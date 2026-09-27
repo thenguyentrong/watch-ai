@@ -1,0 +1,20 @@
+title = "watch-ai"
+
+[extend]
+useDefault = true
+
+# Test data is synthetic by rule and carries the SYNTHETIC marker.
+[[allowlists]]
+description = "synthetic test values"
+regexTarget = "line"
+regexes = ['''SYNTHETIC''']
+
+# The public OAuth client id of OpenAI's Codex CLI is not a secret.
+[[allowlists]]
+description = "public oauth client id"
+regexes = ['''app_EMoamEEZ73f0CkXaXp7hrann''']
+
+# Model hashes and pinned action SHAs.
+[[allowlists]]
+description = "hashes"
+paths = ['''core/brain-ondevice/src/main/assets/models\.json''', '''\.github/workflows/.*\.yml''', '''\.github/requirements-ci\.txt''', '''gradle/verification-metadata\.xml''']

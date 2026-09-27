@@ -1,0 +1,6 @@
+#!/bin/sh
+# Commits are authored by the project owner only: no co-author or generator lines.
+if grep -i -E 'co-authored-by|generated with' "$1" > /dev/null; then
+    echo "commit-msg: remove co-author / generator lines from the message." >&2
+    exit 1
+fi
