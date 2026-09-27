@@ -38,6 +38,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.wear.ambient.AmbientLifecycleObserver
 import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.SwitchButton
 import androidx.wear.compose.material3.Text
 import com.vinhnguyen.watchai.wear.PhoneVoiceLink.Phase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,6 +76,8 @@ class WearActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         PhoneVoiceLink.get(this).onScreen = true
+        // "Hey Buddy" is on but not running (the watch restarted, or Android stopped it): the app is on screen, so it can start.
+        if (WakeSetting.isOn(this) && !CallService.armed.value && micAllowed()) CallService.wakeOn(this)
     }
 
     override fun onStop() {
@@ -88,9 +91,11 @@ class WearActivity : ComponentActivity() {
         talkNow()
     }
 
+    private fun micAllowed() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
     /** Starts a conversation if none is on; without the mic permission the first tap asks for it. */
     private fun talkNow() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        if (!micAllowed()) return
         val link = PhoneVoiceLink.get(this)
         val phase = link.state.value.phase
         if (phase == Phase.IDLE || phase == Phase.ERROR) lifecycleScope.launch { link.start() }
@@ -109,6 +114,10 @@ class WatchViewModel(
         }
     }
 
+    fun setWake(on: Boolean) {
+        if (on) CallService.wakeOn(getApplication()) else CallService.wakeOff(getApplication())
+    }
+
     // No onCleared clean-up: a conversation outlives the screen (the call service keeps it) and
     // ends from the face, the notification's End action, or the phone.
 }
@@ -120,6 +129,8 @@ private fun WatchScreen(
     vm: WatchViewModel = viewModel(),
 ) {
     val state by vm.link.state.collectAsStateWithLifecycle()
+    val wakeOn by CallService.armed.collectAsStateWithLifecycle()
+    val wakeListening by WakeListener.listening.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = LocalActivity.current
     val active = state.phase != Phase.IDLE && state.phase != Phase.ERROR
@@ -130,6 +141,7 @@ private fun WatchScreen(
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) vm.toggle() }
+    val wakePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) vm.setWake(true) }
     val onTap = {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             vm.toggle()
@@ -151,7 +163,7 @@ private fun WatchScreen(
                     .clickable(onClickLabel = if (active) "End the conversation" else "Start talking", role = Role.Button, onClick = onTap),
             )
             Text(
-                label(state),
+                label(state, wakeOn && wakeListening),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
@@ -167,12 +179,29 @@ private fun WatchScreen(
             state.roundTripMs?.takeIf { active }?.let {
                 Text("link $it ms", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (!active && !ambient) {
+                SwitchButton(
+                    checked = wakeOn,
+                    onCheckedChange = { on ->
+                        if (on && context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            wakePermission.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            vm.setWake(on)
+                        }
+                    },
+                    label = { Text("Hey Buddy") },
+                    modifier = Modifier.padding(horizontal = 36.dp),
+                )
+            }
         }
     }
 }
 
-private fun label(state: PhoneVoiceLink.State): String = when (state.phase) {
-    Phase.IDLE -> "Tap to talk"
+private fun label(
+    state: PhoneVoiceLink.State,
+    wakeListening: Boolean,
+): String = when (state.phase) {
+    Phase.IDLE -> if (wakeListening) "Tap or say \"Hey Buddy\"" else "Tap to talk"
     Phase.CONNECTING -> state.detail ?: "Connecting…"
     Phase.LISTENING -> "Listening"
     Phase.THINKING -> "Thinking…"

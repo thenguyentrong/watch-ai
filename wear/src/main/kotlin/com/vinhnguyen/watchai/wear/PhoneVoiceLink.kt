@@ -124,7 +124,7 @@ class PhoneVoiceLink private constructor(
             micOn = null
             phoneHungUp = false
             _state.value = State(Phase.CONNECTING, detail = "Calling your phone…")
-            CallService.start(appContext)
+            CallService.talk(appContext)
             val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             scope = s
             s.launch { run(s) }
@@ -141,7 +141,7 @@ class PhoneVoiceLink private constructor(
             output = null
             s.coroutineContext[Job]?.cancelAndJoin()
             restoreAudio()
-            CallService.stop(appContext)
+            CallService.talked()
             if (answered) buzz(VibrationEffect.EFFECT_DOUBLE_CLICK)
             _state.value = State()
         }
@@ -392,13 +392,17 @@ class PhoneVoiceLink private constructor(
 
     /** Sends whatever is waiting in one write, so a slow Bluetooth flush never holds up the mic. */
     private suspend fun send(out: DataOutputStream) = withContext(Dispatchers.IO) {
-        while (isActive) {
-            val frames = outbox.takeAll(100)
-            if (frames.isEmpty()) continue
-            val started = SystemClock.elapsedRealtime()
-            FrameCodec.writeAll(out, frames)
-            stats.add("writes")
-            stats.max("writeMaxMs", SystemClock.elapsedRealtime() - started)
+        try {
+            while (isActive) {
+                val frames = outbox.takeAll(100)
+                if (frames.isEmpty()) continue
+                val started = SystemClock.elapsedRealtime()
+                FrameCodec.writeAll(out, frames)
+                stats.add("writes")
+                stats.max("writeMaxMs", SystemClock.elapsedRealtime() - started)
+            }
+        } catch (e: IOException) {
+            // The phone hung up mid-write (e.g. after a quiet spell); receive() ends the conversation.
         }
     }
 

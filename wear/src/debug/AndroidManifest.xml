@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Debug builds only: play a WAV to "Hey Buddy" from adb. DUMP keeps other apps out (adb has it). -->
+        <receiver
+            android:name=".HearWav"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+    </application>
+</manifest>

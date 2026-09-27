@@ -1,5 +1,6 @@
 package com.vinhnguyen.watchai.wear
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -8,20 +9,45 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.VibrationEffect
+import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Keeps a conversation going while the screen is off or another app is in front. Without it
- * Android freezes the app once it leaves the screen, and the audio to the phone stalls (a 30 s
- * round trip in the 27.09 test). Runs only during a conversation, with an "End" action.
+ * The watch app's microphone service. It keeps a conversation going while the screen is off or
+ * another app is in front: without it Android freezes the app and the audio stalls (a 30 s round
+ * trip in the 27.09 test). With "Hey Buddy" on it also stays between conversations, so the wake
+ * word can listen when the wrist comes up: Android only lets a microphone service start while the
+ * app is on screen, so it couldn't be started later, when the phrase is heard.
  */
 class CallService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var wake: WakeListener? = null
+    private var talking = false
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
+    override fun onDestroy() {
+        instance = null
+        wake?.stop()
+        wake = null
+        _armed.value = false
+        scope.cancel()
+        super.onDestroy()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -30,53 +56,148 @@ class CallService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
-        if (intent?.action == ACTION_END) {
-            scope.launch { PhoneVoiceLink.get(this@CallService).stop() }
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_END -> scope.launch { PhoneVoiceLink.get(this@CallService).stop() }
+
+            ACTION_WAKE_OFF -> wakeOff()
+
+            ACTION_WAKE_ON -> {
+                goForeground()
+                wakeOn()
+            }
+
+            else -> {
+                synchronized(this) { talking = true }
+                goForeground()
+            }
         }
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Conversation", NotificationManager.IMPORTANCE_LOW))
-        val open =
-            PendingIntent.getActivity(
-                this,
-                0,
-                Intent(this, WearActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                PendingIntent.FLAG_IMMUTABLE,
-            )
-        val end =
-            PendingIntent.getService(
-                this,
-                1,
-                Intent(this, CallService::class.java).setAction(ACTION_END),
-                PendingIntent.FLAG_IMMUTABLE,
-            )
-        val notification =
-            NotificationCompat
-                .Builder(this, CHANNEL)
-                .setSmallIcon(R.drawable.ic_launcher)
-                .setContentTitle("Talking with Watch AI")
-                .setContentText("Your phone is listening through the watch")
-                .setCategory(NotificationCompat.CATEGORY_CALL)
-                .setOngoing(true)
-                .setContentIntent(open)
-                .addAction(0, "End", end)
-                .build()
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         return START_NOT_STICKY
     }
+
+    /** A conversation starts (from the screen or "Hey Buddy"): the microphone is its. */
+    @Synchronized
+    private fun onTalk() {
+        talking = true
+        wake?.pause()
+        refresh()
+    }
+
+    /** The conversation ended: back to listening for "Hey Buddy", or done. */
+    @Synchronized
+    private fun onTalked() {
+        talking = false
+        val listener = wake
+        if (listener == null) {
+            stopSelf()
+            return
+        }
+        refresh()
+        listener.resume()
+    }
+
+    @Synchronized
+    private fun wakeOn() {
+        WakeSetting.set(this, true)
+        if (wake != null) return
+        wake = WakeListener(this) { heard() }.also { it.start() }
+        if (talking) wake?.pause()
+        _armed.value = true
+        refresh()
+    }
+
+    @Synchronized
+    private fun wakeOff() {
+        WakeSetting.set(this, false)
+        wake?.stop()
+        wake = null
+        _armed.value = false
+        if (talking) refresh() else stopSelf()
+    }
+
+    /** "Hey Buddy" was heard: a tick on the wrist, the face if Android lets it come up, and talk. */
+    @SuppressLint("WearRecents") // started from a service, so it needs its own task
+    private fun heard() {
+        runCatching { getSystemService(VibratorManager::class.java)?.defaultVibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)) }
+        // From the background Android may not show it; the conversation runs either way.
+        runCatching { startActivity(Intent(this, WearActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        scope.launch { PhoneVoiceLink.get(this@CallService).start() }
+    }
+
+    private fun goForeground() {
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(NotificationChannel(CHANNEL, "Conversation", NotificationManager.IMPORTANCE_LOW))
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+    }
+
+    /** New notification text for the running service (no second start: that isn't allowed from the background). */
+    @SuppressLint("MissingPermission") // checked: areNotificationsEnabled
+    private fun refresh() {
+        val notifications = NotificationManagerCompat.from(this)
+        if (notifications.areNotificationsEnabled()) notifications.notify(NOTIFICATION_ID, notification())
+    }
+
+    private fun notification() = NotificationCompat
+        .Builder(this, CHANNEL)
+        .setSmallIcon(R.drawable.ic_launcher)
+        .setCategory(if (talking) NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_SERVICE)
+        .setOngoing(true)
+        .setContentIntent(
+            PendingIntent.getActivity(this, 0, Intent(this, WearActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE),
+        ).apply {
+            if (talking) {
+                setContentTitle("Talking with Watch AI")
+                setContentText("Your phone is listening through the watch")
+                addAction(0, "End", PendingIntent.getService(this@CallService, 1, Intent(this@CallService, CallService::class.java).setAction(ACTION_END), PendingIntent.FLAG_IMMUTABLE))
+            } else {
+                setContentTitle("\"Hey Buddy\" is on")
+                setContentText("Raise your wrist and say it")
+                addAction(0, "Turn off", PendingIntent.getService(this@CallService, 2, Intent(this@CallService, CallService::class.java).setAction(ACTION_WAKE_OFF), PendingIntent.FLAG_IMMUTABLE))
+            }
+        }.build()
 
     companion object {
         private const val CHANNEL = "conversation"
         private const val NOTIFICATION_ID = 1
+        private const val ACTION_TALK = "com.vinhnguyen.watchai.wear.TALK"
         private const val ACTION_END = "com.vinhnguyen.watchai.wear.END"
+        private const val ACTION_WAKE_ON = "com.vinhnguyen.watchai.wear.WAKE_ON"
+        private const val ACTION_WAKE_OFF = "com.vinhnguyen.watchai.wear.WAKE_OFF"
 
-        /** Call while the app is on screen (Android only lets a microphone service start then). */
-        fun start(context: Context) {
-            context.startForegroundService(Intent(context, CallService::class.java))
+        @Volatile private var instance: CallService? = null
+
+        private val _armed = MutableStateFlow(false)
+
+        /** "Hey Buddy" is switched on and the service is there to listen. */
+        val armed: StateFlow<Boolean> = _armed.asStateFlow()
+
+        /**
+         * A conversation starts. With the service already running (for "Hey Buddy") it's told directly;
+         * otherwise it's started, which Android allows only while the app is on screen.
+         */
+        fun talk(context: Context) {
+            val running = instance
+            if (running != null) running.onTalk() else context.startForegroundService(Intent(context, CallService::class.java).setAction(ACTION_TALK))
         }
 
-        fun stop(context: Context) {
-            context.stopService(Intent(context, CallService::class.java))
+        fun talked() {
+            instance?.onTalked()
+        }
+
+        /** Switches "Hey Buddy" on. Call while the app is on screen. */
+        fun wakeOn(context: Context) {
+            context.startForegroundService(Intent(context, CallService::class.java).setAction(ACTION_WAKE_ON))
+        }
+
+        fun wakeOff(context: Context) {
+            val running = instance
+            if (running != null) running.wakeOff() else WakeSetting.set(context, false)
+        }
+
+        /** Debug builds: [pcm] goes to the wake word as if heard. False if "Hey Buddy" is off. */
+        fun testWakeWord(pcm: ShortArray): Boolean {
+            val listener = instance?.wake ?: return false
+            listener.test(pcm)
+            return true
         }
     }
 }

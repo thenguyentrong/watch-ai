@@ -13,3 +13,4 @@ captures/
 !debug-shared.keystore.README
 .env
 .env.*
+.downloads/
