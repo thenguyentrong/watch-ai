@@ -13,6 +13,8 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.VibratorManager
 import android.util.Log
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.Wearable
@@ -50,7 +52,8 @@ import java.io.IOException
 
 /**
  * The watch side of a conversation: opens a voice channel to the phone app, sends the watch's
- * microphone and plays the answer on the watch speaker. The phone does the talking to ChatGPT.
+ * microphone and plays the answer on the watch speaker. The phone does the talking to ChatGPT, and
+ * says which of the two the watch does: with earbuds on the phone, the watch may do neither.
  */
 class PhoneVoiceLink private constructor(
     context: Context,
@@ -63,6 +66,10 @@ class PhoneVoiceLink private constructor(
         val level: Float = 0f,
         val detail: String? = null,
         val roundTripMs: Long? = null,
+        /** False while earbuds on the phone play the answer. */
+        val answersOnWatch: Boolean = true,
+        /** False while earbuds on the phone are the microphone too: the watch only shows the face. */
+        val micOnWatch: Boolean = true,
     )
 
     private val appContext = context.applicationContext
@@ -92,6 +99,19 @@ class PhoneVoiceLink private constructor(
     /** The phone picked up (sent its first frame). Until then nothing is sent, so no audio piles up. */
     @Volatile private var answered = false
 
+    /** Whether the watch plays the answer and records the user; null until the phone says (it does so right away). */
+    @Volatile private var speakerOn: Boolean? = null
+
+    @Volatile private var micOn: Boolean? = null
+
+    /** The phone said goodbye: the conversation ended normally (hung up, or nobody talked for a while). */
+    @Volatile private var phoneHungUp = false
+
+    /** The app's screen is showing (set by the activity): only then can it open the watch's clock. */
+    @Volatile var onScreen = false
+
+    private val clock = ClockApps(appContext)
+
     suspend fun start() {
         lifecycle.withLock {
             if (scope != null) return
@@ -100,6 +120,9 @@ class PhoneVoiceLink private constructor(
                 return
             }
             answered = false
+            speakerOn = null
+            micOn = null
+            phoneHungUp = false
             _state.value = State(Phase.CONNECTING, detail = "Calling your phone…")
             CallService.start(appContext)
             val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -119,6 +142,7 @@ class PhoneVoiceLink private constructor(
             s.coroutineContext[Job]?.cancelAndJoin()
             restoreAudio()
             CallService.stop(appContext)
+            if (answered) buzz(VibrationEffect.EFFECT_DOUBLE_CLICK)
             _state.value = State()
         }
     }
@@ -137,17 +161,17 @@ class PhoneVoiceLink private constructor(
             val input = DataInputStream(BufferedInputStream(channels.getInputStream(opened).await()))
             val out = DataOutputStream(BufferedOutputStream(channels.getOutputStream(opened).await()))
             output = out
-            useWatchSpeaker()
             s.launch { speak() }
             s.launch { listen() }
             s.launch { send(out) }
             s.launch { ping() }
             receive(input)
-            // The phone closed the channel.
+            // The phone closed the channel: back to the idle face if it said goodbye, else the link broke.
             if (scope != null) {
+                val ended = phoneHungUp
                 cleanup.launch {
                     stop()
-                    _state.value = State(Phase.ERROR, detail = "The phone ended the call")
+                    if (!ended) _state.value = State(Phase.ERROR, detail = "Lost the connection to your phone")
                 }
             }
         } catch (e: Exception) {
@@ -162,6 +186,7 @@ class PhoneVoiceLink private constructor(
     private fun receive(input: DataInputStream) {
         while (true) {
             val frame = FrameCodec.read(input) ?: return
+            if (!answered) buzz(VibrationEffect.EFFECT_CLICK)
             answered = true
             when (frame) {
                 is Frame.Audio -> {
@@ -191,8 +216,8 @@ class PhoneVoiceLink private constructor(
         when (control.type) {
             "status" -> {
                 val phase = runCatching { Phase.valueOf(control.phase.orEmpty().uppercase()) }.getOrNull() ?: return
-                // Listening: show the user's own loudness, measured here with no delay.
-                val level = if (phase == Phase.LISTENING) micLevel else control.level ?: 0f
+                // Listening: show the user's own loudness, measured here with no delay (unless earbuds are the mic).
+                val level = if (phase == Phase.LISTENING && micOn != false) micLevel else control.level ?: 0f
                 _state.update { it.copy(phase = phase, level = level, detail = null) }
             }
 
@@ -203,13 +228,34 @@ class PhoneVoiceLink private constructor(
                     _state.update { it.copy(roundTripMs = rtt) }
                 }
 
-            "bye" -> _state.update { it.copy(phase = Phase.ERROR, detail = "The phone ended the call") }
+            "bye" -> phoneHungUp = true
+
+            "timer", "alarm" -> outbox.offer(Frame.Message(Control("done", id = control.id, text = clock.set(control, onScreen))))
+
+            "route" -> {
+                val speaker = control.speaker ?: true
+                val mic = control.mic ?: true
+                speakerOn = speaker
+                micOn = mic
+                _state.update { it.copy(answersOnWatch = speaker, micOnWatch = mic) }
+            }
         }
     }
 
-    /** The watch microphone, echo-cancelled, in 20 ms frames to the phone. */
-    @SuppressLint("MissingPermission") // checked in start()
+    /** The watch microphone, whenever the phone wants it (not while earbuds on the phone are the mic). */
     private suspend fun listen() = withContext(Dispatchers.IO) {
+        while (isActive) {
+            if (micOn == false) {
+                delay(100)
+                continue
+            }
+            record()
+        }
+    }
+
+    /** Records echo-cancelled 40 ms frames for the phone until the phone switches the mic off. */
+    @SuppressLint("MissingPermission") // checked in start()
+    private suspend fun record() = withContext(Dispatchers.IO) {
         val minBuffer = AudioRecord.getMinBufferSize(WatchLink.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val record =
             AudioRecord(
@@ -228,7 +274,7 @@ class PhoneVoiceLink private constructor(
         var lastLevelAt = 0L
         try {
             record.startRecording()
-            while (isActive) {
+            while (isActive && micOn != false) {
                 val readStart = SystemClock.elapsedRealtime()
                 val n = record.read(frame, 0, frame.size)
                 stats.add("reads")
@@ -260,49 +306,87 @@ class PhoneVoiceLink private constructor(
             runCatching { record.stop() }
             aec?.release()
             record.release()
+            micLevel = 0f
         }
     }
 
     /** Plays the answer as it arrives; a flush drops what is queued the moment the user interrupts. */
     private suspend fun speak() = withContext(Dispatchers.IO) {
-        val minBuffer = AudioTrack.getMinBufferSize(WatchLink.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val track =
-            AudioTrack
-                .Builder()
-                .setAudioAttributes(
-                    AudioAttributes
-                        .Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build(),
-                ).setAudioFormat(
-                    AudioFormat
-                        .Builder()
-                        .setSampleRate(WatchLink.SAMPLE_RATE)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .build(),
-                ).setBufferSizeInBytes(maxOf(minBuffer, WatchLink.FRAME_BYTES * 4))
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
+        var track: AudioTrack? = null
         try {
-            track.play()
             while (isActive) {
+                // Earbuds on the phone play the answer: no speaker, no call audio mode on the watch.
+                when (speakerOn) {
+                    true ->
+                        if (track == null) {
+                            useWatchSpeaker()
+                            track = newTrack().also { it.play() }
+                        }
+
+                    false ->
+                        track?.let {
+                            runCatching { it.stop() }
+                            it.release()
+                            track = null
+                            playback.clear()
+                            restoreAudio()
+                        }
+
+                    null -> Unit
+                }
+                val playing = track
+                if (playing == null) {
+                    delay(100)
+                    continue
+                }
                 if (flushRequested) {
                     flushRequested = false
-                    track.pause()
-                    track.flush()
-                    track.play()
+                    playing.pause()
+                    playing.flush()
+                    playing.play()
                 }
                 // Sleeps until audio arrives (no polling: this runs for the whole conversation).
                 if (playback.awaitAtLeast(WatchLink.FRAME_SAMPLES, timeoutMs = 50)) {
                     val chunk = playback.take(WatchLink.FRAME_SAMPLES)
-                    track.write(chunk, 0, chunk.size)
+                    playing.write(chunk, 0, chunk.size)
                 }
             }
         } finally {
-            runCatching { track.stop() }
-            track.release()
+            track?.let {
+                runCatching { it.stop() }
+                it.release()
+            }
+        }
+    }
+
+    private fun newTrack(): AudioTrack {
+        val minBuffer = AudioTrack.getMinBufferSize(WatchLink.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        return AudioTrack
+            .Builder()
+            .setAudioAttributes(
+                AudioAttributes
+                    .Builder()
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            ).setAudioFormat(
+                AudioFormat
+                    .Builder()
+                    .setSampleRate(WatchLink.SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .build(),
+            ).setBufferSizeInBytes(maxOf(minBuffer, WatchLink.FRAME_BYTES * 4))
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+    }
+
+    private fun buzz(effect: Int) {
+        runCatching {
+            appContext
+                .getSystemService(VibratorManager::class.java)
+                ?.defaultVibrator
+                ?.vibrate(VibrationEffect.createPredefined(effect))
         }
     }
 
@@ -329,7 +413,7 @@ class PhoneVoiceLink private constructor(
     }
 
     private fun useWatchSpeaker() {
-        previousMode = audioManager.mode
+        if (audioManager.mode != AudioManager.MODE_IN_COMMUNICATION) previousMode = audioManager.mode
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.availableCommunicationDevices
             .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }

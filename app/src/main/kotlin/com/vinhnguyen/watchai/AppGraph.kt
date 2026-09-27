@@ -6,6 +6,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.vinhnguyen.watchai.actions.NoteStore
 import com.vinhnguyen.watchai.actions.PhoneActions
+import com.vinhnguyen.watchai.actions.PhoneClock
 import com.vinhnguyen.watchai.brain.BrainRouter
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptBrain
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
@@ -21,6 +22,7 @@ import com.vinhnguyen.watchai.ondevice.ModelRepository
 import com.vinhnguyen.watchai.ondevice.OnDeviceSettings
 import com.vinhnguyen.watchai.security.KeystoreVault
 import com.vinhnguyen.watchai.security.TimberBrainLogger
+import com.vinhnguyen.watchai.watch.WatchCalls
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -65,7 +67,8 @@ class AppGraph(
     // Notes get their own vault and key: signing out of ChatGPT never touches them.
     private val notesVault = KeystoreVault(appContext, logger, alias = "watchai_notes_master_v1", dirName = "notes")
     val notes = NoteStore(notesVault)
-    val actions = PhoneActions(appContext, notes, logger)
+    val actions = PhoneActions(appContext, notes, PhoneClock(appContext) { foreground.isForeground() }, logger)
+    val watchCalls = WatchCalls(this)
 
     /** "Delete everything": tokens, keys, reports, notes, models, settings. */
     suspend fun deleteEverything() {
@@ -92,6 +95,11 @@ class AppSettings(
     var cloudAllowed: Boolean
         get() = prefs.getBoolean("cloud_allowed", false)
         set(value) = prefs.edit { putBoolean("cloud_allowed", value) }
+
+    /** GPT-Live voice, chosen in the Voice tab; watch calls use it too. */
+    var voice: String
+        get() = prefs.getString("voice", null) ?: "cove"
+        set(value) = prefs.edit { putString("voice", value) }
 
     fun clearAll() = prefs.edit { clear() }
 }

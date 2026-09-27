@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Debug builds only: "say" a WAV into a watch call from adb. DUMP keeps other apps out (adb has it). -->
+        <receiver
+            android:name=".debug.SayIntoWatchCall"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+    </application>
+</manifest>

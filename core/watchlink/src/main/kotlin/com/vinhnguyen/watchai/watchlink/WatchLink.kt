@@ -45,7 +45,11 @@ public sealed interface Frame {
 
 /**
  * [type]: "status" (phone to watch: the conversation's [phase] and the talker's [level] 0..1),
- * "ping" / "pong" (either way, [at] echoed, to measure the link's round trip), "bye" (either side ends).
+ * "ping" / "pong" (either way, [at] echoed, to measure the link's round trip), "bye" (either side ends),
+ * "route" (phone to watch: [mic] true = the watch is the microphone, [speaker] true = the watch
+ * plays the answer; with a headset on the phone both are false and the watch only shows the face),
+ * "timer" / "alarm" (phone to watch: set one on the watch's own clock, [seconds] or [hour]:[minute],
+ * with an optional [label]) answered by "done" (watch to phone: the same [id], the outcome in [text]).
  */
 @Serializable
 public data class Control(
@@ -53,6 +57,14 @@ public data class Control(
     val phase: String? = null,
     val level: Float? = null,
     val at: Long? = null,
+    val speaker: Boolean? = null,
+    val mic: Boolean? = null,
+    val id: Long? = null,
+    val seconds: Int? = null,
+    val hour: Int? = null,
+    val minute: Int? = null,
+    val label: String? = null,
+    val text: String? = null,
 )
 
 /** Frames on the channel: kind (1 byte), payload length (2 bytes, big-endian), payload. */

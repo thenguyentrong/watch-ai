@@ -1,6 +1,7 @@
 package com.vinhnguyen.watchai.voice
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.MediaRecorder
 import android.os.SystemClock
 import com.vinhnguyen.watchai.brain.Brain
@@ -95,6 +96,9 @@ class ChatGptRealtimeSession(
     private val voice: String = "cove",
     /** When set (e.g. the watch), the user's voice comes from here and the answer plays there instead of on the phone. */
     private val external: ExternalAudio? = null,
+    /** Hang up after this long without words from the user, an answer or a look-up (like a smart speaker); null = never. */
+    private val idleHangUpMs: Long? = null,
+    private val onIdle: () -> Unit = {},
     private val instructions: String = VOICE_INSTRUCTIONS,
 ) : VoiceSession {
     override val name: String = "ChatGPT voice (GPT-Live)"
@@ -125,8 +129,21 @@ class ChatGptRealtimeSession(
 
     @Volatile private var responsePending = false
 
-    /** External speaker only: the user is talking over the answer, so it isn't forwarded. */
+    /** The user is talking over the answer: it is neither played nor forwarded. */
     @Volatile private var answerMuted = false
+
+    /** RTC thread only: what the phone's own speaker was last set to. */
+    private var phoneSpeakerMuted = false
+
+    /** RTC thread only: whether the phone is in call audio mode (its own mic, headset or loudspeaker). */
+    private var callAudioOn = false
+
+    /**
+     * When the conversation last moved, for [idleHangUpMs]: words from the user (as OpenAI hears them,
+     * so background noise doesn't count), an answer playing, or a look-up running.
+     */
+    @Volatile private var lastActivityAt = 0L
+    private var idleReported = false
     private val seenTypes = mutableSetOf<String>()
 
     override suspend fun start() {
@@ -154,7 +171,11 @@ class ChatGptRealtimeSession(
         val started = SystemClock.elapsedRealtime()
         try {
             var bearer = auth.bearer()
-            if (external == null) audio.enter()
+            // The phone's own audio (call mode, headset or loudspeaker) is used unless the external device is the mic.
+            if (external == null || !external.micOnDevice) {
+                audio.enter()
+                callAudioOn = true
+            }
             val connection = createPeerConnection()
             val offer = connection.createOfferSdp()
             val answer =
@@ -211,18 +232,21 @@ class ChatGptRealtimeSession(
                     external?.let { ext ->
                         // Runs before WebRTC sends each 10 ms buffer: put the external mic's audio in it.
                         setAudioBufferCallback { buffer, _, channels, sampleRate, bytes, captureTimeNs ->
-                            ext.fillMicrophone(buffer, bytes, sampleRate, channels)
+                            // With a headset on the phone, its microphone goes through unchanged.
+                            if (ext.micOnDevice) ext.fillMicrophone(buffer, bytes, sampleRate, channels)
                             captureTimeNs
                         }
                     }
                 }
-                .setAudioAttributes(CallAudio.SPEECH)
+                // With an external mic the phone only plays into headphones: a media-like route, not a call.
+                .setAudioAttributes(if (external != null && external.micOnDevice) ASSISTANT else CallAudio.SPEECH)
                 .setUseHardwareAcousticEchoCanceler(true)
                 .setUseHardwareNoiseSuppressor(true)
                 .createAudioDeviceModule()
         adm = module
         // With an external speaker the phone stays silent; the answer reaches it through a sink.
-        if (external != null) module.setSpeakerMute(true)
+        if (external != null) module.setSpeakerMute(!external.answerOnPhone)
+        phoneSpeakerMuted = external != null && !external.answerOnPhone
         val f = PeerConnectionFactory.builder().setAudioDeviceModule(module).createPeerConnectionFactory()
         factory = f
         val config = PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
@@ -320,6 +344,7 @@ class ChatGptRealtimeSession(
         val timer = TurnTimer()
         val bargeIn = BargeIn()
         val start = SystemClock.elapsedRealtime()
+        lastActivityAt = start
         while (currentCoroutineContext().isActive) {
             val (user, assistant) = connection.levels()
             val now = SystemClock.elapsedRealtime() - start
@@ -330,18 +355,34 @@ class ChatGptRealtimeSession(
             }
             when (bargeIn.sample(now, user, timer.assistantSpeaking)) {
                 BargeIn.Action.MUTE -> {
-                    if (external != null) {
-                        answerMuted = true
-                        external.flushAnswer()
-                    } else {
-                        adm?.setSpeakerMute(true)
-                    }
+                    answerMuted = true
+                    external?.takeUnless { it.answerOnPhone }?.flushAnswer()
                     _state.update { it.copy(metrics = it.metrics.withInterrupt(bargeIn.lastMuteAfterMs)) }
                 }
 
-                BargeIn.Action.UNMUTE -> if (external != null) answerMuted = false else adm?.setSpeakerMute(false)
+                BargeIn.Action.UNMUTE -> answerMuted = false
 
                 null -> Unit
+            }
+            // The phone plays when there's no external speaker in use, and not while the user talks over it.
+            val phoneSilent = answerMuted || (external != null && !external.answerOnPhone)
+            if (phoneSilent != phoneSpeakerMuted) {
+                phoneSpeakerMuted = phoneSilent
+                adm?.setSpeakerMute(phoneSilent)
+            }
+            // The headset went away mid-call: the phone leaves call mode, the external device takes over.
+            val wantCallAudio = external == null || !external.micOnDevice
+            if (wantCallAudio != callAudioOn) {
+                callAudioOn = wantCallAudio
+                if (wantCallAudio) audio.enter() else audio.exit()
+            }
+            val clock = start + now
+            if (timer.assistantSpeaking || consultJob?.isActive == true) lastActivityAt = clock
+            val idleLimit = idleHangUpMs
+            if (idleLimit != null && !idleReported && clock - lastActivityAt >= idleLimit) {
+                idleReported = true
+                note("hung up after ${idleLimit / 1000} s of quiet")
+                onIdle()
             }
             if (timer.assistantSpeaking) responsePending = false
             _level.value = (if (timer.assistantSpeaking) assistant else user).toFloat()
@@ -417,7 +458,7 @@ class ChatGptRealtimeSession(
                 note("remote audio track")
                 val ext = external ?: return
                 (receiver?.track() as? AudioTrack)?.addSink { data, _, sampleRate, channels, frames, _ ->
-                    if (!answerMuted) ext.playAnswer(data, sampleRate, channels, frames)
+                    if (!answerMuted && !ext.answerOnPhone) ext.playAnswer(data, sampleRate, channels, frames)
                 }
             }
         }
@@ -457,6 +498,7 @@ class ChatGptRealtimeSession(
     }
 
     private fun onUserText(event: QuicksilverWire.Event.UserText) {
+        lastActivityAt = SystemClock.elapsedRealtime()
         if (event.final) {
             userTurnOpen = false
             remember(ChatTurn.Role.USER, event.text)
@@ -563,6 +605,13 @@ class ChatGptRealtimeSession(
 
     companion object {
         const val MODEL = "gpt-live-1-codex"
+
+        private val ASSISTANT: AudioAttributes =
+            AudioAttributes
+                .Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
         private const val CALL_URL = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
         private const val ICE_GATHER_TIMEOUT_MS = 400L
         private const val POLL_MS = 50L
@@ -589,6 +638,6 @@ class ChatGptRealtimeSession(
                 "When a question needs facts you are not sure of, current information, or the exact time, or when the user wants " +
                 "something done on their phone (a note, a calendar event, a reminder, a timer or an alarm, or reading their notes or calendar), " +
                 "delegate it to the client and wait for the result, then say the answer in your own words. Never claim something was done " +
-                "unless the result says so."
+                "unless the result says so. If a request misses something it needs, like how long a timer should run, ask for that first."
     }
 }

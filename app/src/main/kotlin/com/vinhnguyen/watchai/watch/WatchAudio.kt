@@ -14,11 +14,15 @@ import com.vinhnguyen.watchai.watchlink.Pcm
 import com.vinhnguyen.watchai.watchlink.PcmQueue
 import com.vinhnguyen.watchai.watchlink.SilenceGate
 import com.vinhnguyen.watchai.watchlink.WatchLink
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
 /**
@@ -31,8 +35,27 @@ class WatchAudio(
     private val input: DataInputStream,
     private val output: DataOutputStream,
     override val name: String,
+    route: Route,
     private val onEnd: () -> Unit,
 ) : ExternalAudio {
+    @Volatile
+    var route: Route = route
+        private set
+
+    override val answerOnPhone: Boolean get() = route != Route.WATCH
+    override val micOnDevice: Boolean get() = route != Route.HEADSET
+
+    /** Headphones or a headset came or went on the phone: tell the watch what it's used for now. */
+    fun setRoute(next: Route) {
+        if (next == route) return
+        route = next
+        if (answerOnPhone) flushAnswer()
+        if (!micOnDevice) mic.clear()
+        outbox.offer(routeMessage())
+    }
+
+    private fun routeMessage() = Frame.Message(Control("route", speaker = route == Route.WATCH, mic = route != Route.HEADSET))
+
     private val mic = PcmQueue(WatchLink.SAMPLE_RATE / 2)
     private val outbox = Outbox(maxAudio = OUTBOX_FRAMES)
     private val pending = ShortArray(WatchLink.FRAME_SAMPLES)
@@ -44,9 +67,46 @@ class WatchAudio(
     @Volatile private var closed = false
     private var writer: Thread? = null
     private val stats = LinkStats()
+    private val asked = ConcurrentHashMap<Long, CompletableDeferred<String>>()
+    private val nextId = AtomicLong()
+
+    @Volatile private var saying = false
+
+    /**
+     * Feeds [pcm] (16 kHz mono) in as if the watch had heard it, in real time, with the watch's own
+     * mic ignored meanwhile. Debug builds use it to test calls without talking.
+     */
+    fun say(pcm: ShortArray) {
+        thread(name = "watch-say", isDaemon = true) {
+            saying = true
+            try {
+                for (start in pcm.indices step WatchLink.FRAME_SAMPLES) {
+                    if (closed) break
+                    mic.offer(pcm.copyOfRange(start, minOf(start + WatchLink.FRAME_SAMPLES, pcm.size)))
+                    Thread.sleep(FRAME_MS)
+                }
+            } finally {
+                saying = false
+            }
+        }
+    }
+
+    /** Asks the watch to do something (e.g. set a timer): its answer, or null if none comes in time. */
+    suspend fun ask(request: Control): String? {
+        val id = nextId.incrementAndGet()
+        val answer = CompletableDeferred<String>()
+        asked[id] = answer
+        outbox.offer(Frame.Message(request.copy(id = id)))
+        return try {
+            withTimeoutOrNull(ASK_TIMEOUT_MS) { answer.await() }
+        } finally {
+            asked.remove(id)
+        }
+    }
 
     fun start() {
         outbox.offer(Frame.Message(Control("status", phase = "connecting")))
+        outbox.offer(routeMessage())
         thread(name = "watch-in", isDaemon = true) { readLoop() }
         writer = thread(name = "watch-out", isDaemon = true) { writeLoop() }
     }
@@ -66,12 +126,12 @@ class WatchAudio(
                 when (val frame = FrameCodec.read(input) ?: break) {
                     is Frame.Audio -> {
                         stats.add("inPcm")
-                        mic.offer(Pcm.toShorts(frame.pcm))
+                        if (micOnDevice && !saying) mic.offer(Pcm.toShorts(frame.pcm))
                     }
 
                     is Frame.Adpcm -> {
                         stats.add("inAdpcm")
-                        mic.offer(Adpcm.decode(frame.packet))
+                        if (micOnDevice && !saying) mic.offer(Adpcm.decode(frame.packet))
                     }
 
                     is Frame.Message ->
@@ -80,6 +140,8 @@ class WatchAudio(
                                 stats.add("inPing")
                                 outbox.offer(Frame.Message(Control("pong", at = frame.control.at)))
                             }
+
+                            "done" -> frame.control.id?.let { asked[it]?.complete(frame.control.text.orEmpty()) }
 
                             "bye" -> break
                         }
@@ -197,6 +259,8 @@ class WatchAudio(
         const val REPORT_MS = 2_000L
         const val ANSWER_SILENCE = 0.002f
         const val ANSWER_HANGOVER = 5 // 200 ms
+        const val ASK_TIMEOUT_MS = 5_000L
+        const val FRAME_MS = 40L
         const val TAG = "WatchLink"
     }
 }

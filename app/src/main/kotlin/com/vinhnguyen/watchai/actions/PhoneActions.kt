@@ -1,12 +1,9 @@
 package com.vinhnguyen.watchai.actions
 
 import android.Manifest
-import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.provider.AlarmClock
 import android.provider.CalendarContract
 import com.vinhnguyen.watchai.brain.BrainLogger
 import com.vinhnguyen.watchai.brain.LogEvent
@@ -25,12 +22,14 @@ import java.time.ZoneOffset
 /**
  * What the assistant can do on this phone: notes (kept in this app), calendar events and reminders
  * (the phone's calendar, so they sync to the user's Google or Samsung calendar and show on the
- * watch), timers and alarms (the phone's clock app). Only adding and reading - nothing is deleted
- * or sent anywhere. Every argument is checked; results are short plain sentences for the model.
+ * watch), timers and alarms ([clock]: the watch's during a watch call, else the phone's). Only
+ * adding and reading - nothing is deleted or sent anywhere. Every argument is checked; results are
+ * short plain sentences for the model.
  */
 class PhoneActions(
     context: Context,
     private val notes: NoteStore,
+    private val clock: Clock,
     private val logger: BrainLogger = BrainLogger.None,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
 ) : Toolbox {
@@ -126,35 +125,21 @@ class PhoneActions(
         return done(LIST_EVENTS, "ok", events.joinToString(" | "))
     }
 
-    private fun setTimer(args: JsonObject): String {
+    private suspend fun setTimer(args: JsonObject): String {
         val seconds = ActionArgs.int(args, "seconds", 1..86_400) ?: return done(SET_TIMER, "invalid", "error: seconds must be between 1 and 86400")
-        val intent =
-            Intent(AlarmClock.ACTION_SET_TIMER)
-                .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
-                .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-                .apply { ActionArgs.text(args, "label", TITLE_MAX)?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) } }
-        return if (launch(intent)) done(SET_TIMER, "ok", "ok: timer set for $seconds seconds") else done(SET_TIMER, "failed", "error: no clock app took the timer")
+        return clocked(SET_TIMER, clock.setTimer(seconds, ActionArgs.text(args, "label", TITLE_MAX)))
     }
 
-    private fun setAlarm(args: JsonObject): String {
+    private suspend fun setAlarm(args: JsonObject): String {
         val hour = ActionArgs.int(args, "hour", 0..23) ?: return done(SET_ALARM, "invalid", "error: hour must be 0 to 23")
         val minute = ActionArgs.int(args, "minute", 0..59) ?: 0
-        val intent =
-            Intent(AlarmClock.ACTION_SET_ALARM)
-                .putExtra(AlarmClock.EXTRA_HOUR, hour)
-                .putExtra(AlarmClock.EXTRA_MINUTES, minute)
-                .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-                .apply { ActionArgs.text(args, "label", TITLE_MAX)?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) } }
-        val time = "%02d:%02d".format(hour, minute)
-        return if (launch(intent)) done(SET_ALARM, "ok", "ok: alarm set for $time") else done(SET_ALARM, "failed", "error: no clock app took the alarm")
+        return clocked(SET_ALARM, clock.setAlarm(hour, minute, ActionArgs.text(args, "label", TITLE_MAX)))
     }
 
-    private fun launch(intent: Intent): Boolean = try {
-        appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        true
-    } catch (e: ActivityNotFoundException) {
-        false
-    }
+    private fun clocked(
+        tool: String,
+        result: String,
+    ) = done(tool, if (result.startsWith("ok")) "ok" else "failed", result)
 
     private suspend fun insertEvent(
         title: String,
@@ -331,12 +316,14 @@ class PhoneActions(
                 ),
                 ToolSpec(
                     SET_TIMER,
-                    "Start a countdown timer in the phone's clock app.",
+                    "Start a countdown timer for the length the user said; never guess one (if they didn't say how long, ask). " +
+                        "When the user talks through their watch it rings on the watch, otherwise in the phone's clock app.",
                     """{"type":"object","properties":{"seconds":{"type":"integer","minimum":1,"maximum":86400},"label":{"type":"string"}},"required":["seconds"],"additionalProperties":false}""",
                 ),
                 ToolSpec(
                     SET_ALARM,
-                    "Set an alarm in the phone's clock app for the next time it is this hour and minute.",
+                    "Set an alarm for the next time it is this hour and minute; never guess a time (if the user didn't say one, ask). " +
+                        "It is set on the watch when the user talks through it, otherwise in the phone's clock app.",
                     """{"type":"object","properties":{"hour":{"type":"integer","minimum":0,"maximum":23},"minute":{"type":"integer","minimum":0,"maximum":59},"label":{"type":"string"}},"required":["hour"],"additionalProperties":false}""",
                 ),
             )

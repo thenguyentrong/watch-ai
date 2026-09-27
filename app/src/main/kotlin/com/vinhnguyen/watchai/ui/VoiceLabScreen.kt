@@ -69,6 +69,7 @@ import com.vinhnguyen.watchai.ui.VoiceLabViewModel.ModelWarmth
 import com.vinhnguyen.watchai.voice.ChatGptRealtimeSession
 import com.vinhnguyen.watchai.voice.VoicePhase
 import com.vinhnguyen.watchai.voice.VoiceState
+import com.vinhnguyen.watchai.watch.Route
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 
@@ -162,6 +163,7 @@ fun VoiceLabScreen(vm: VoiceLabViewModel) {
 
         Captions(vs)
         Timings(vs, state.savedTo)
+        WatchCard(vm)
         ActionsCard(vm)
         ProbeCard(state, onRun = { withMic { vm.runProbe() } })
     }
@@ -321,6 +323,37 @@ private fun Metric(
     }
 }
 
+/** Talking from the watch: the call in progress, run by the phone's watch service whether the app is open or not. */
+@Composable
+private fun WatchCard(vm: VoiceLabViewModel) {
+    val call by vm.watchCall.collectAsStateWithLifecycle()
+    Card(Modifier.fillMaxWidth().animateContentSize()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Watch", style = MaterialTheme.typography.titleMedium)
+            val current = call
+            if (current != null) {
+                Text("Talking through ${current.watch} · ${current.voice.phase.name.lowercase()}", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    when (current.route) {
+                        Route.WATCH -> "The watch is the microphone and speaker."
+                        Route.HEADPHONES -> "Answers play in your headphones; the watch is the microphone."
+                        Route.HEADSET -> "Your headset is the microphone and speaker; the watch shows the face."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(onClick = vm::endWatchCall) { Text("End") }
+            } else {
+                Text(
+                    "Open Watch AI on the watch and talk; the phone can stay in your pocket. Tip: set the watch's side button to open it (Settings, Advanced features, Customize buttons).",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
 /** What the assistant can do on this phone, the calendar permission, and the notes it keeps. */
 @Composable
 private fun ActionsCard(vm: VoiceLabViewModel) {
@@ -343,7 +376,7 @@ private fun ActionsCard(vm: VoiceLabViewModel) {
                     Button(onClick = { calendarPermission.launch(PhoneActions.CALENDAR_PERMISSIONS) }) { Text("Allow") }
                 }
             }
-            ActionRow("Timers and alarms", "Set in your Clock app")
+            ActionRow("Timers and alarms", "On the watch when you talk through it, else in the phone's Clock app")
             ActionRow("Notes", if (notes.isEmpty()) "None yet · kept encrypted in this app" else "${notes.size} · kept encrypted in this app") {
                 if (notes.isNotEmpty()) {
                     TextButton(onClick = { showNotes = !showNotes }) { Text(if (showNotes) "Hide" else "Show") }
@@ -411,9 +444,7 @@ private fun ProbeCard(
 }
 
 private fun engineLine(state: VoiceLabViewModel.State): String = when (state.engine) {
-    Engine.CHATGPT ->
-        state.watch?.let { "Talking through $it · ChatGPT voice on your plan" }
-            ?: "Speech to speech on your ChatGPT plan · voice ${state.voice} · or tap the face in the watch app"
+    Engine.CHATGPT -> "Speech to speech on your ChatGPT plan · voice ${state.voice}"
 
     Engine.ON_DEVICE ->
         "Gemma on this phone, nothing leaves it · " +

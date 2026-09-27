@@ -12,6 +12,18 @@ interface ExternalAudio {
     val name: String
 
     /**
+     * True while the answer should play on the phone itself (headphones are connected to it), with
+     * this device only the microphone. May change during a conversation.
+     */
+    val answerOnPhone: Boolean
+
+    /**
+     * True while this device is the microphone. False while a headset on the phone is both mic and
+     * speaker (this device then only shows the conversation). May change during a conversation.
+     */
+    val micOnDevice: Boolean
+
+    /**
      * Called every 10 ms on WebRTC's recording thread, before the audio is sent: overwrite the
      * first [bytes] of [buffer] (16-bit PCM, [sampleRate], [channels] interleaved) with the user's voice.
      */

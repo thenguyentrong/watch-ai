@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- Watch calls with the phone app closed: a connected-device service, started when Play
+         services wakes the app for the watch's voice channel. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <!-- No advertising ID: some libraries add it, we remove it. -->
     <uses-permission
         android:name="com.google.android.gms.permission.AD_ID"
@@ -58,6 +62,24 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Woken by Google Play services when the watch app opens its voice channel. -->
+        <service
+            android:name=".watch.WatchListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.CHANNEL_EVENT" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/watchai/voice"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".watch.WatchCallService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
 
         <service
             android:name=".SignInKeepAliveService"

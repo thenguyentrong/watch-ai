@@ -2,6 +2,7 @@ package com.vinhnguyen.watchai.wear
 
 import android.Manifest
 import android.app.Application
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.WindowManager
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.wear.ambient.AmbientLifecycleObserver
@@ -62,10 +64,36 @@ class WearActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Wrist down: stay on the face in ambient mode instead of going back to the watch face.
         lifecycle.addObserver(ambientObserver)
+        // Opening the app is the "press to talk": from the launcher, the tile or the side button.
+        if (savedInstanceState == null) talkNow()
         setContent {
             val isAmbient by ambient.collectAsStateWithLifecycle()
             MaterialTheme { WatchScreen(ambient = isAmbient) }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        PhoneVoiceLink.get(this).onScreen = true
+    }
+
+    override fun onStop() {
+        PhoneVoiceLink.get(this).onScreen = false
+        super.onStop()
+    }
+
+    /** Opened again while already running (single task): talk again, unless a conversation is on. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        talkNow()
+    }
+
+    /** Starts a conversation if none is on; without the mic permission the first tap asks for it. */
+    private fun talkNow() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        val link = PhoneVoiceLink.get(this)
+        val phase = link.state.value.phase
+        if (phase == Phase.IDLE || phase == Phase.ERROR) lifecycleScope.launch { link.start() }
     }
 }
 
@@ -128,6 +156,14 @@ private fun WatchScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
             )
+            val earbuds =
+                when {
+                    !active -> null
+                    !state.micOnWatch -> "Using your earbuds"
+                    !state.answersOnWatch -> "Answers in your earbuds"
+                    else -> null
+                }
+            earbuds?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             state.roundTripMs?.takeIf { active }?.let {
                 Text("link $it ms", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
