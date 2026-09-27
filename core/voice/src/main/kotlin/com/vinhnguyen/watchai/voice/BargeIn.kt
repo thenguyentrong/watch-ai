@@ -12,9 +12,11 @@ package com.vinhnguyen.watchai.voice
  * Pure logic, unit-tested.
  */
 class BargeIn(
-    private val talkLevel: Double = 0.08,
+    private val talkLevel: Double = 0.06,
     private val quietLevel: Double = 0.03,
     private val talkMs: Long = 200,
+    /** Speech dips between words; a dip shorter than this doesn't restart the count. */
+    private val gapMs: Long = 150,
     private val releaseMs: Long = 1_000,
     private val learnMs: Long = 400,
     private val maxMuteMs: Long = 3_000,
@@ -34,6 +36,8 @@ class BargeIn(
     private var quietSince: Long? = null
     private var mutedSince = 0L
     private var gaveUp = false
+    private var belowSince: Long? = null
+    private var loudSamples = 0
 
     fun sample(
         nowMs: Long,
@@ -43,6 +47,7 @@ class BargeIn(
         if (!assistantSpeaking) {
             answerSince = null
             talkSince = null
+            belowSince = null
             quietSince = null
             gaveUp = false
             if (!muted) return null
@@ -65,13 +70,30 @@ class BargeIn(
         nowMs: Long,
         userLevel: Double,
     ): Action? {
+        if (gaveUp) return null
         val talk = maxOf(talkLevel, minOf(MAX_TALK_LEVEL, echo * ECHO_MARGIN))
-        if (gaveUp || userLevel < talk) {
-            talkSince = null
+        val since = talkSince
+        if (since == null) {
+            if (userLevel >= talk) {
+                talkSince = nowMs
+                loudSamples = 1
+                belowSince = null
+            }
             return null
         }
-        val since = talkSince ?: nowMs.also { talkSince = it }
-        if (nowMs - since < talkMs) return null
+        if (userLevel >= talk * HOLD_RATIO) {
+            belowSince = null
+            if (userLevel >= talk) loudSamples++
+        } else {
+            val quietFrom = belowSince ?: nowMs.also { belowSince = it }
+            if (nowMs - quietFrom >= gapMs) {
+                talkSince = null
+                belowSince = null
+            }
+            return null
+        }
+        // Mute only while the user is audible right now, after enough loud moments.
+        if (nowMs - since < talkMs || loudSamples < MIN_LOUD_SAMPLES) return null
         muted = true
         mutedSince = nowMs
         lastMuteAfterMs = nowMs - since
@@ -109,5 +131,7 @@ class BargeIn(
         const val ECHO_DECAY = 0.8
         const val ECHO_MARGIN = 2.5
         const val MAX_TALK_LEVEL = 0.3
+        const val HOLD_RATIO = 0.5
+        const val MIN_LOUD_SAMPLES = 2
     }
 }

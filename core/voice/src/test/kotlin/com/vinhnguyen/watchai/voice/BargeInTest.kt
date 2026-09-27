@@ -30,6 +30,25 @@ class BargeInTest {
     }
 
     @Test
+    fun `speech with short dips between words still mutes`() {
+        val b = BargeIn()
+        b.feed(0, 1_000, user = 0.0)
+        val actions =
+            b.feed(1_000, 1_100, user = 0.3) +
+                b.feed(1_100, 1_150, user = 0.01) +
+                b.feed(1_150, 1_400, user = 0.3)
+        assertThat(actions).containsExactly(1_200L to Action.MUTE)
+    }
+
+    @Test
+    fun `a quieter voice than before is still heard`() {
+        val b = BargeIn()
+        b.feed(0, 1_000, user = 0.0)
+        // 0.07 is below the old 0.08 threshold, which missed the interruption in the 27.09 test.
+        assertThat(b.feed(1_000, 1_400, user = 0.07)).containsExactly(1_200L to Action.MUTE)
+    }
+
+    @Test
     fun `nobody is muted in the first moments of an answer`() {
         val b = BargeIn()
         assertThat(b.feed(0, 400, user = 0.3)).isEmpty()
