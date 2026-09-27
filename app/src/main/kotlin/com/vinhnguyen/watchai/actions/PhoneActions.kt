@@ -91,7 +91,7 @@ class PhoneActions(
     ): String = if (calendarAllowed()) {
         block()
     } else {
-        done(name, "denied", "error: calendar access is off. Tell the user to allow it in the Watch AI app, under Things it can do.")
+        done(name, "denied", "error: calendar access is off. Tell the user to allow it in the Buddy app, under Things it can do.")
     }
 
     private suspend fun addEvent(args: JsonObject): String {
@@ -122,7 +122,7 @@ class PhoneActions(
         val text = ActionArgs.text(args, "text", TITLE_MAX) ?: return done(ADD_REMINDER, "invalid", "error: the reminder needs text")
         val at = ActionArgs.time(ActionArgs.text(args, "at", 40), zone()) as? ActionArgs.When.At ?: return done(ADD_REMINDER, "invalid", "error: at must be a date and time like 2026-09-28T15:00")
         if (!plausible(at.time)) return done(ADD_REMINDER, "invalid", "error: that time is in the past or too far away")
-        insertEvent(text, at.time, at.time.plusMinutes(REMINDER_MINUTES), allDay = false, location = null, details = "Reminder from Watch AI", alertMinutes = 0)
+        insertEvent(text, at.time, at.time.plusMinutes(REMINDER_MINUTES), allDay = false, location = null, details = "Reminder from Buddy", alertMinutes = 0)
         return done(ADD_REMINDER, "ok", "ok: the phone will remind the user on ${ActionArgs.say(at.time)}")
     }
 
@@ -336,7 +336,7 @@ class PhoneActions(
             listOf(
                 ToolSpec(
                     ADD_NOTE,
-                    "Save a note for the user in their Watch AI notes (use for 'note that…', 'add … to my notes', shopping items, ideas).",
+                    "Save a note for the user in their Buddy notes (use for 'note that…', 'add … to my notes', shopping items, ideas).",
                     """{"type":"object","properties":{"text":{"type":"string","description":"The note, in the user's words."}},"required":["text"],"additionalProperties":false}""",
                 ),
                 ToolSpec(

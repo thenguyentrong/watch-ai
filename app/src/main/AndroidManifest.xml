@@ -19,6 +19,11 @@
     <!-- Watch calls with the phone app closed: a connected-device service, started when Play
          services wakes the app for the watch's voice channel. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- "Work in the background" (Settings): lets Android start the watch call service with the app
+         closed, and keeps a conversation on the phone going after the user leaves the app. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <!-- No advertising ID: some libraries add it, we remove it. -->
     <uses-permission
@@ -89,6 +94,11 @@
             android:name=".watch.WatchCallService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <service
+            android:name=".PhoneTalkService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <service
             android:name=".SignInKeepAliveService"

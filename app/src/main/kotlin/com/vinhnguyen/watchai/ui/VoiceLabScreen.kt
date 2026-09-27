@@ -348,7 +348,7 @@ private fun WatchCard(vm: VoiceLabViewModel) {
                 Button(onClick = vm::endWatchCall) { Text("End") }
             } else {
                 Text(
-                    "Open Watch AI on the watch and talk; the phone can stay in your pocket. Tip: set the watch's side button to open it (Settings, Advanced features, Customize buttons).",
+                    "Open Buddy on the watch and talk; the phone can stay in your pocket. Tip: set the watch's side button to open it (Settings, Advanced features, Customize buttons).",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

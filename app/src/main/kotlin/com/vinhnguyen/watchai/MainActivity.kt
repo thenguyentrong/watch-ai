@@ -69,9 +69,9 @@ class MainActivity : ComponentActivity() {
                 val benchmark: BenchmarkViewModel? = if (BuildConfig.DEBUG) viewModel(factory = factory) else null
                 val voiceLab: VoiceLabViewModel? = if (BuildConfig.DEBUG) viewModel(factory = factory) else null
                 var tab by rememberSaveable { mutableIntStateOf(0) }
-                val tabs = listOf("Chat", "Brains", "Settings") + if (voiceLab != null) listOf("Voice", "Buddy") else emptyList()
+                val tabs = listOf("Buddy", "Chat", "Brains", "Settings") + if (voiceLab != null) listOf("Voice") else emptyList()
                 Scaffold(
-                    topBar = { TopAppBar(title = { Text("Watch AI") }) },
+                    topBar = { TopAppBar(title = { Text("Buddy") }) },
                     bottomBar = {
                         NavigationBar {
                             tabs.forEachIndexed { index, label ->
@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
                                     selected = tab == index,
                                     onClick = {
                                         tab = index
-                                        if (index == 1) brains.refresh()
+                                        if (label == "Brains") brains.refresh()
                                     },
                                     icon = { Text(label.take(1)) },
                                     label = { Text(label) },
@@ -89,12 +89,12 @@ class MainActivity : ComponentActivity() {
                     },
                 ) { padding ->
                     Box(Modifier.padding(padding)) {
-                        when (tab) {
-                            0 -> ChatScreen(chat)
-                            1 -> BrainsScreen(brains)
-                            3 -> voiceLab?.let { VoiceLabScreen(it) }
-                            4 -> BuddyScreen(graph)
-                            else -> SettingsScreen(onDeleteEverything = graph::deleteEverything, benchmark = benchmark)
+                        when (tabs.getOrNull(tab)) {
+                            "Chat" -> ChatScreen(chat)
+                            "Brains" -> BrainsScreen(brains)
+                            "Settings" -> SettingsScreen(onDeleteEverything = graph::deleteEverything, benchmark = benchmark)
+                            "Voice" -> voiceLab?.let { VoiceLabScreen(it) }
+                            else -> BuddyScreen(graph, showOthers = BuildConfig.DEBUG)
                         }
                     }
                 }

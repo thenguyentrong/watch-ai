@@ -50,8 +50,7 @@ class MoodReaderTest {
     @Test
     fun `wire names round-trip`() {
         Mood.entries.forEach { assertThat(Mood.of(it.wire)).isEqualTo(it) }
-        Look.entries.forEach { assertThat(Look.of(it.wire)).isEqualTo(it) }
         assertThat(Mood.of("furious")).isNull()
-        assertThat(Look.of(null)).isNull()
+        assertThat(Mood.of(null)).isNull()
     }
 }

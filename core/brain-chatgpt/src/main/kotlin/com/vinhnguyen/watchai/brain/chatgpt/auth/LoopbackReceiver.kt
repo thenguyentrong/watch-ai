@@ -245,9 +245,9 @@ private object Pages {
     const val SUCCESS: String =
         "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\">" +
             "<title>Signed in</title><style>$STYLE</style><h1>You're signed in</h1>" +
-            "<p>Go back to Watch AI. You can close this tab.</p>"
+            "<p>Go back to Buddy. You can close this tab.</p>"
     const val ERROR: String =
         "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\">" +
             "<title>Sign-in didn't work</title><style>$STYLE</style><h1>Sign-in didn't work</h1>" +
-            "<p>Go back to Watch AI and try again.</p>"
+            "<p>Go back to Buddy and try again.</p>"
 }

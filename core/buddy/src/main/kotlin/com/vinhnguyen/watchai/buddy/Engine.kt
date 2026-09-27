@@ -2,19 +2,13 @@ package com.vinhnguyen.watchai.buddy
 
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.floor
-import kotlin.math.pow
+import kotlin.math.min
 import kotlin.math.sin
 
-/** Where the conversation is: the base of Buddy's face and motion. */
+/** Where the conversation is: what Buddy does when no reaction plays. */
 public enum class Act { REST, AWAKE, CONNECT, LISTEN, THINK, SPEAK, ERROR }
-
-public enum class EyeShape { OPEN, HAPPY, CLOSED, HEARTS, WIDE, SQUINT }
-
-public enum class Arms { REST, WAVE, UP }
-
-public enum class Effect { NONE, SPARKLES, HEARTS, ZZZ, QUESTION, EXCLAIM, SWEAT, DOTS }
 
 /** What Buddy is doing: the conversation's [act] since [actAt], and a [reaction] since [reactionAt] (seconds). */
 public data class Scene(
@@ -25,243 +19,216 @@ public data class Scene(
 )
 
 /**
- * One frame of Buddy in body units: radius 1 is the body at rest, (0, 0) its centre, y up.
- * Renderers only draw this; they decide nothing.
+ * An eye or the mouth, cut out of the body, and how far it shows. It is drawn in its own frame
+ * (a pill [w] by [h] centred on the origin, or the [band] of a mouth or a squinting eye), then
+ * mapped to body units: x' = a x + c y + e, y' = b x + d y + f. That keeps a frame to a handful
+ * of numbers, and lets a renderer draw a rounded rect or one curve under a transform instead of
+ * building outlines point by point.
  */
-public data class Frame(
-    /** Wider and shorter (> 0) or taller (< 0), keeping the area: bounces and breathing. */
-    val squash: Float,
-    val dx: Float,
-    val dy: Float,
-    /** Lean in degrees, positive = to the right. */
-    val tilt: Float,
-    val eyes: EyeShape,
-    val eyeOpen: Float,
-    val gazeX: Float,
-    val gazeY: Float,
-    /** -1 frown .. 1 big smile. */
-    val smile: Float,
-    val mouthOpen: Float,
-    val blush: Float,
-    val arms: Arms,
-    /** Seconds into the gesture, for waving. */
-    val armT: Float,
-    val effect: Effect,
-    /** Seconds into the effect: one-shot effects rise and fade, the thinking dots loop. */
-    val effectT: Float,
-    val intensity: Float,
+public class Feature(
+    public val w: Float,
+    public val h: Float,
+    public val band: Mouth?,
+    public val a: Float,
+    public val b: Float,
+    public val c: Float,
+    public val d: Float,
+    public val e: Float,
+    public val f: Float,
+    public val alpha: Float,
+) {
+    /** The outline in body units, as points (x, y interleaved). */
+    public fun outline(): FloatArray {
+        val local = band?.let { Face.mouth(it) } ?: Face.pill(w, h)
+        return FloatArray(local.size) { i ->
+            val x = local[i - i % 2]
+            val y = local[i - i % 2 + 1]
+            if (i % 2 == 0) a * x + c * y + e else b * x + d * y + f
+        }
+    }
+}
+
+/**
+ * One picture of Buddy in body units: 1 is the radius of the ball at rest, (0, 0) its centre,
+ * y points down. Renderers only draw this, in order: [arcs] behind, [dots] if [dotsBehind], the
+ * [body] with its [features] and the [badge] gap cut out, [dots] in front, the [badge], [arcs] in front.
+ */
+public class BuddyFrame(
+    /** [Silhouette.SAMPLES] outline points, x and y interleaved; draw as a smooth closed curve. */
+    public val body: FloatArray,
+    public val features: List<Feature>,
+    public val dots: List<Dot>,
+    public val dotsBehind: Boolean,
+    public val arcs: List<Arc>,
+    public val badge: Badge?,
 )
 
 /**
- * Buddy's animation as a pure function of time, like bloub's engine (MIT, github.com/jeremy-prt/bloub):
- * the same scene and time always give the same frame, so a frame can be frozen for a screenshot
- * or a test, and nothing here reads a clock. Life at rest is gaze drift and blinking; motion
- * comes from reactions and eases out without overshoot.
+ * Buddy's animation, a port of bloub's engine by Jérémy Perret (MIT, github.com/jeremy-prt/bloub,
+ * src/bot/engine.ts): no clock inside, [sample] is a pure function of the time it is given and
+ * of the state changes set before, so pausing, jumping or freezing always gives the same picture.
+ * A change blends from what was on screen, frozen if it lands in the middle of another blend.
+ *
+ * With [still] (the system's animations are off) there is no drift, breathing or blinking, each
+ * state shows its most readable moment and changes are instant.
  */
-public object Engine {
-    /** How long a reaction's face stays, and how long its motion takes (seconds). */
-    public const val REACTION_S: Double = 3.5
-    public const val MOTION_S: Double = 1.2
+public class BuddyEngine(
+    private val genes: Genes,
+    private val still: Boolean = false,
+) {
+    private var cur = State.IDLE
+    private var prev: State? = null
+    private var frozen: Pose? = null
+    private var tCur = 0.0
+    private var tPrev = 0.0
+    private var blinkAt = -10.0
 
-    /** State changes blend over this long from what was on screen (seconds). */
-    public const val FADE_S: Double = 0.35
+    internal val state: State get() = cur
 
-    public fun frame(
-        genes: Genes,
-        scene: Scene,
+    /** Starts over on [state] with nothing to blend from, as a new engine would. */
+    internal fun reset(
+        state: State,
+        now: Double,
+    ) {
+        cur = state
+        prev = null
+        frozen = null
+        tCur = now
+        tPrev = now
+        blinkAt = -10.0
+    }
+
+    /** Switches to [state] at [now]; a change mid-blend starts from the blended picture, so nothing jumps. */
+    internal fun setState(
+        state: State,
+        now: Double,
+    ) {
+        if (state == cur) return
+        val midBlend = prev != null && now - tCur < cur.morph
+        frozen = if (midBlend) composed(now, 0f) else null
+        prev = cur
+        tPrev = tCur
+        cur = state
+        tCur = now
+        if (state.blinkIn) blinkAt = now
+    }
+
+    private fun posed(
+        state: State,
+        since: Double,
         level: Float,
-        t: Double,
-    ): Frame {
-        val base = act(genes, scene.act, (t - scene.actAt).toFloat(), t, level.coerceIn(0f, 1f))
-        val reaction = scene.reaction
-        val rt = (t - scene.reactionAt).toFloat()
-        val pose = if (reaction != null && rt in 0f..REACTION_S.toFloat()) react(base, reaction, rt) else base
-        return Frame(
-            squash = pose.squash,
-            dx = pose.dx,
-            dy = pose.dy,
-            tilt = pose.tilt,
-            eyes = pose.eyes,
-            eyeOpen = (pose.eyeOpen * blink(genes.seed, t)).coerceAtLeast(0f),
-            gazeX = pose.gazeX,
-            gazeY = pose.gazeY,
-            smile = pose.smile,
-            mouthOpen = pose.mouthOpen,
-            blush = pose.blush,
-            arms = pose.arms,
-            armT = if (reaction != null && pose.arms != Arms.REST) rt else (t - scene.actAt).toFloat(),
-            effect = pose.effect,
-            effectT = if (pose.effect == Effect.DOTS) (t - scene.actAt).toFloat() else rt,
-            intensity = reaction?.intensity ?: 0.5f,
-        )
-    }
+    ): Pose = state.pose(if (still) state.readable else maxOf(0.0, since).toFloat(), Cue(genes.body, genes.face, level))
 
-    /** From [from] towards [to]: numbers ease out; eye shapes swap mid-way behind a quick blink. */
-    public fun blend(
-        from: Frame,
-        to: Frame,
-        u: Float,
-    ): Frame {
-        val e = 1f - (1f - u.coerceIn(0f, 1f)).pow(5)
-        fun mix(
-            a: Float,
-            b: Float,
-        ) = a + (b - a) * e
-        val swap = from.eyes != to.eyes
-        val blinkThrough = if (swap) abs(1f - 2f * e) else 1f
-        return to.copy(
-            squash = mix(from.squash, to.squash),
-            dx = mix(from.dx, to.dx),
-            dy = mix(from.dy, to.dy),
-            tilt = mix(from.tilt, to.tilt),
-            eyes = if (e < 0.5f) from.eyes else to.eyes,
-            eyeOpen = mix(from.eyeOpen, to.eyeOpen) * blinkThrough,
-            gazeX = mix(from.gazeX, to.gazeX),
-            gazeY = mix(from.gazeY, to.gazeY),
-            smile = mix(from.smile, to.smile),
-            mouthOpen = mix(from.mouthOpen, to.mouthOpen),
-            blush = mix(from.blush, to.blush),
-        )
-    }
-
-    /** The conversation's base pose, [t] seconds into the act, [clock] the absolute time for the life at rest. */
-    private fun act(
-        genes: Genes,
-        act: Act,
-        t: Float,
-        clock: Double,
+    /** The blended pose at [now], before the life at rest. */
+    private fun composed(
+        now: Double,
         level: Float,
     ): Pose {
-        val (gx, gy) = drift(genes.seed, clock)
-        val c = clock.toFloat()
-        return when (act) {
-            Act.REST -> Pose(squash = 0.02f * sin(1.1f * c), eyeOpen = 0.45f, gazeX = gx * 0.5f, gazeY = gy * 0.5f - 0.1f, smile = 0.2f)
-            Act.AWAKE -> Pose(squash = 0.012f * sin(1.3f * c), gazeX = gx, gazeY = gy, smile = 0.3f)
-            Act.CONNECT -> Pose(eyeOpen = 0.3f + 0.7f * easeOut(t / 0.6f), gazeY = 0.5f, smile = 0.2f)
-            Act.LISTEN -> Pose(squash = -0.06f * level, dy = 0.03f * level, eyeOpen = 1.1f, gazeX = gx * 0.3f, gazeY = gy * 0.3f, smile = 0.3f)
-            Act.THINK -> Pose(gazeX = 0.55f + 0.12f * cos(2 * t), gazeY = 0.6f + 0.1f * sin(2 * t), smile = 0f, tilt = 4f * sin(1.4f * t), effect = Effect.DOTS)
-            Act.SPEAK -> Pose(mouthOpen = 0.12f + 0.6f * level, dy = 0.02f * level * sin(9 * t), gazeX = gx, gazeY = gy, smile = 0.45f)
-            Act.ERROR -> Pose(eyes = EyeShape.SQUINT, smile = -0.3f, tilt = -5f, effect = Effect.SWEAT)
+        val since = now - tCur
+        val pose = posed(cur, since, level)
+        if (still || since >= cur.morph) return pose
+        val from = frozen ?: prev?.let { posed(it, now - tPrev, level) } ?: return pose
+        return Pose.blend(from, pose, easeOutQuint(clamp01((since / cur.morph).toFloat())))
+    }
+
+    /** Buddy at [now], with the voice [level] (0..1) for the mouth and the listening lean. */
+    public fun sample(
+        now: Double,
+        level: Float = 0f,
+    ): BuddyFrame {
+        val pose = composed(now, level.coerceIn(0f, 1f))
+        val alive = pose.faceAlpha > 0.01f
+        val life = Face.life(now, if (alive) 1f else 0f, alive, still)
+        val gaze = pose.face.gaze.let { Gaze(it.yaw + life.dYaw, it.pitch + life.dPitch, it.roll + life.dRoll) }
+        // A blink forced by the state change, on top of the schedule.
+        val forced = clamp01(((now - blinkAt) / 0.2).toFloat())
+        val lid = if (still) 1f else min(life.lid, if (forced < 1f) abs(forced * 2 - 1) else 1f)
+        val offX = pose.offX + life.driftX
+        val offY = pose.offY + life.driftY
+        val sil = pose.sil.copy(cx = pose.sil.cx + offX, cy = pose.sil.cy + offY, sy = pose.sil.sy * life.breath)
+
+        // Features live on a unit sphere; on other outlines they move in or out with the radius in their direction.
+        fun fit(
+            x: Float,
+            y: Float,
+        ) = Silhouette.radiusAt(pose.sil.radii, atan2(y, x) - pose.sil.rot)
+
+        val features = ArrayList<Feature>(3)
+        if (alive) {
+            val (inner, outer, mouth) = Face.spots(gaze, pose.face.split, pose.face.drop)
+            for ((spot, eye) in listOf(inner to pose.face.eyes.first, outer to pose.face.eyes.second)) {
+                if (spot.depth <= 0.02f) continue
+                val k = fit(spot.x, spot.y)
+                val squash = Face.blinkScale(min(lid, eye.open))
+                features += Face.feature(spot, eye.tilt, squash, spot.x * k + offX, spot.y * k + offY, eye.w, eye.h, Face.band(eye), pose.faceAlpha * Face.facing(spot.depth))
+            }
+            if (mouth.depth > 0.02f) {
+                val k = fit(mouth.x, mouth.y)
+                val m = pose.face.mouth
+                features += Face.feature(mouth, m.tilt, 1f, mouth.x * k + offX, mouth.y * k + offY, m.w, m.thick, m, pose.faceAlpha * Face.facing(mouth.depth))
+            }
         }
-    }
 
-    /** A reaction's face over the base, and its one motion in the first [MOTION_S] seconds. */
-    private fun react(
-        base: Pose,
-        reaction: Reaction,
-        rt: Float,
-    ): Pose {
-        val a = 0.4f + 0.6f * reaction.intensity
-        val m = (rt / MOTION_S.toFloat()).coerceIn(0f, 1f)
-        val fade = 1f - m
-        val pi = PI.toFloat()
-        fun bounce() = base.copy(dy = base.dy + 0.1f * a * abs(sin(3 * pi * m)) * fade, squash = base.squash + 0.12f * a * sin(6 * pi * m) * fade)
-        fun jump() = base.copy(dy = base.dy + 0.16f * a * sin(pi * m), squash = base.squash - 0.12f * a * sin(pi * m))
-        fun shake() = base.copy(dx = base.dx + 0.04f * a * sin(8 * pi * m) * fade)
-        fun nod() = base.copy(dy = base.dy - 0.03f * a * sin(4 * pi * m) * fade)
-        fun sway() = base.copy(tilt = base.tilt + 7f * a * sin(2 * pi * m))
-        fun droop() = base.copy(dy = base.dy - 0.04f * a * m, squash = base.squash + 0.1f * a * m)
-        return when (reaction.mood) {
-            Mood.NEUTRAL -> base
-            Mood.HAPPY -> nod().copy(eyes = EyeShape.HAPPY, smile = 0.5f + 0.4f * reaction.intensity, blush = 0.6f)
-            Mood.GREET -> base.copy(eyes = EyeShape.HAPPY, smile = 0.8f, blush = 0.5f, arms = Arms.WAVE)
-            Mood.EXCITED -> bounce().copy(eyes = EyeShape.WIDE, smile = 1f, mouthOpen = 0.35f, blush = 0.6f, arms = Arms.UP, effect = Effect.SPARKLES)
-            Mood.LAUGH -> shake().copy(eyes = EyeShape.SQUINT, smile = 1f, mouthOpen = 0.55f, blush = 0.7f)
-            Mood.LOVE -> sway().copy(eyes = EyeShape.HEARTS, smile = 0.7f, blush = 1f, effect = Effect.HEARTS)
-            Mood.CURIOUS -> base.copy(gazeX = -0.4f, gazeY = 0.1f, smile = 0.15f, tilt = -10f * a, effect = Effect.QUESTION)
-            Mood.THINKING -> base.copy(gazeX = 0.55f, gazeY = 0.6f, smile = 0f, effect = Effect.DOTS)
-            Mood.SURPRISED -> jump().copy(eyes = EyeShape.WIDE, smile = 0f, mouthOpen = 0.45f, effect = Effect.EXCLAIM)
-            Mood.SAD -> droop().copy(eyeOpen = 0.7f, gazeY = -0.5f, smile = -0.6f, blush = 0.1f)
-            Mood.SLEEPY -> sway().copy(eyes = EyeShape.CLOSED, smile = 0.1f, effect = Effect.ZZZ)
-            Mood.CONFUSED -> base.copy(gazeX = 0.3f, smile = -0.15f, tilt = 9f * a, effect = Effect.QUESTION)
-            Mood.PROUD -> jump().copy(eyes = EyeShape.HAPPY, smile = 0.9f, blush = 0.6f, arms = Arms.UP, effect = Effect.SPARKLES)
-            Mood.OOPS -> shake().copy(eyes = EyeShape.SQUINT, smile = -0.3f, effect = Effect.SWEAT)
+        val badge = pose.badge?.let { b ->
+            val a = Decor.BADGE_ANGLE * PI.toFloat() / 180f
+            val k = fit(cos(a), sin(a))
+            Badge(cos(a) * k + offX, sin(a) * k + offY, b.r, Decor.BADGE_GAP, b.heart)
         }
+
+        return BuddyFrame(
+            body = sil.points(),
+            features = features,
+            dots = pose.dots.filter { it.opacity > 0.01f && it.r > 0.0005f }.map { Dot(it.x + offX, it.y + offY, it.r, it.opacity, it.depth, it.shape, it.rot) },
+            dotsBehind = pose.dotsBehind,
+            arcs = pose.arcs.filter { it.opacity > 0.01f }.map { Decor.arc(it.seed, it.t, it.opacity, genes.color.hue) },
+            badge = badge,
+        )
     }
-
-    /** Where the eyes wander at rest: two slow waves per axis, phased by the seed so no two Buddies look alike. */
-    internal fun drift(
-        seed: Long,
-        t: Double,
-    ): Pair<Float, Float> {
-        val p = phases(seed)
-        val x = 0.18 * sin(0.61 * t + p[0]) + 0.07 * sin(1.73 * t + p[1])
-        val y = 0.1 * sin(0.47 * t + p[2]) + 0.05 * sin(1.31 * t + p[3])
-        return x.toFloat() to y.toFloat()
-    }
-
-    /** 1 with the eyes open, down to 0.08 in a blink: one blink every 3.7 s, give or take, at seeded moments. */
-    internal fun blink(
-        seed: Long,
-        t: Double,
-    ): Float {
-        val k = floor(t / BLINK_EVERY).toLong()
-        for (i in k - 1..k) {
-            val start = i * BLINK_EVERY + jitter(seed, i) * 1.8
-            val u = (t - start) / BLINK_S
-            if (u in 0.0..1.0) return (1.0 - 0.92 * sin(PI * u)).toFloat()
-        }
-        return 1f
-    }
-
-    private fun phases(seed: Long): DoubleArray {
-        val rng = Rng(seed xor 0x5EED)
-        return DoubleArray(4) { rng.nextFloat() * 2 * PI }
-    }
-
-    private fun jitter(
-        seed: Long,
-        i: Long,
-    ): Double = Rng(seed xor (i * 0x9E3779B9L)).nextFloat().toDouble()
-
-    private fun easeOut(u: Float): Float = 1f - (1f - u.coerceIn(0f, 1f)).pow(5)
-
-    private const val BLINK_EVERY = 3.7
-    private const val BLINK_S = 0.16
 }
 
-/** Keeps what's on screen continuous when the scene changes mid-animation: the new scene blends from the last frame shown. */
+/**
+ * Turns scenes into engine states: the reaction while it plays, else the conversation. Each
+ * change is set at the moment it really happened (not when the next frame came), so the
+ * picture doesn't depend on the frame rate.
+ */
 public class Director(
-    private val genes: Genes,
+    genes: Genes,
+    still: Boolean = false,
 ) {
-    private var scene: Scene? = null
-    private var from: Frame? = null
-    private var changedAt = 0.0
-    private var last: Frame? = null
+    private val engine = BuddyEngine(genes, still)
+    private var started = false
 
-    /** The frame at [t]; with [blend] off (a frozen view, where time doesn't move) the scene's own frame, no fade. */
+    /** The frame at [t]; with [blend] off (a frozen view, where time doesn't move) the state as if it had always been on. */
     public fun frame(
         scene: Scene,
         level: Float,
         t: Double,
         blend: Boolean = true,
-    ): Frame {
-        if (!blend) return Engine.frame(genes, scene, level, t).also { last = it }
-        if (scene != this.scene) {
-            from = last
-            changedAt = t
-            this.scene = scene
+    ): BuddyFrame {
+        val (state, since) = target(scene, t)
+        if (!blend || !started) {
+            engine.reset(state, since)
+            started = true
+        } else {
+            engine.setState(state, since)
         }
-        val target = Engine.frame(genes, scene, level, t)
-        val start = from
-        val shown = if (start != null && t - changedAt < Engine.FADE_S) Engine.blend(start, target, ((t - changedAt) / Engine.FADE_S).toFloat()) else target
-        last = shown
-        return shown
+        return engine.sample(t, level)
+    }
+
+    internal companion object {
+        /** What plays at [t] and since when. */
+        fun target(
+            scene: Scene,
+            t: Double,
+        ): Pair<State, Double> {
+            val act = State.of(scene.act)
+            val mood = scene.reaction?.let { State.of(it.mood) } ?: return act to scene.actAt
+            val end = scene.reactionAt + mood.hold
+            return when {
+                t < scene.reactionAt -> act to scene.actAt
+                t < end -> mood to scene.reactionAt
+                else -> act to maxOf(scene.actAt, end)
+            }
+        }
     }
 }
-
-internal data class Pose(
-    val squash: Float = 0f,
-    val dx: Float = 0f,
-    val dy: Float = 0f,
-    val tilt: Float = 0f,
-    val eyes: EyeShape = EyeShape.OPEN,
-    val eyeOpen: Float = 1f,
-    val gazeX: Float = 0f,
-    val gazeY: Float = 0f,
-    val smile: Float = 0.3f,
-    val mouthOpen: Float = 0f,
-    val blush: Float = 0.3f,
-    val arms: Arms = Arms.REST,
-    val effect: Effect = Effect.NONE,
-)

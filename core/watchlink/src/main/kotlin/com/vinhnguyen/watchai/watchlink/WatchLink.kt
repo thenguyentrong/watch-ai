@@ -51,8 +51,8 @@ public sealed interface Frame {
  * "timer" / "alarm" (phone to watch: set one on the watch's own clock, [seconds] or [hour]:[minute],
  * with an optional [label]) and "battery" (phone to watch: its battery), each answered by "done"
  * (watch to phone: the same [id], the outcome in [text]), and "mascot" (phone to watch: Buddy's
- * reaction as a mood name in [mood] with its intensity in [level], the outfit's item names in
- * [outfit], and the [seed] that makes this user's Buddy; any of them may be missing).
+ * reaction as a mood name in [mood] with its intensity in [level], and the [seed] that makes this
+ * user's Buddy; either may be missing).
  */
 @Serializable
 public data class Control(
@@ -69,7 +69,6 @@ public data class Control(
     val label: String? = null,
     val text: String? = null,
     val mood: String? = null,
-    val outfit: String? = null,
     val seed: Long? = null,
 )
 

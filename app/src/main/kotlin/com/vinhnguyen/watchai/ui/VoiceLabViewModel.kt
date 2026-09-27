@@ -3,6 +3,7 @@ package com.vinhnguyen.watchai.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vinhnguyen.watchai.AppGraph
+import com.vinhnguyen.watchai.PhoneTalkService
 import com.vinhnguyen.watchai.actions.NoteStore
 import com.vinhnguyen.watchai.brain.Preloaded
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
@@ -92,11 +93,13 @@ class VoiceLabViewModel(
     }
 
     /**
-     * The app went to the background (e.g. the clock app opened for a timer). Keep the conversation
-     * for a little while; Android silences the mic meanwhile. Coming back cancels this.
+     * The app went to the background (e.g. the clock app opened for a timer). With the talk service
+     * holding the mic the conversation just goes on; without it Android silences the mic, so keep
+     * the conversation for a little while only. Coming back cancels this.
      */
     fun onBackground() {
         stopLater?.cancel()
+        if (session != null && PhoneTalkService.running) return
         stopLater =
             viewModelScope.launch {
                 delay(BACKGROUND_GRACE_MS)
@@ -176,6 +179,7 @@ class VoiceLabViewModel(
                 viewModelScope.launch { s.level.collect { _level.value = it } },
             )
         s.start()
+        PhoneTalkService.start(graph.appContext) { stop() }
     }
 
     fun stop() {
@@ -186,6 +190,7 @@ class VoiceLabViewModel(
         val current = session ?: return
         val engine = _state.value.active
         session = null
+        PhoneTalkService.stop(graph.appContext)
         current.stop()
         watchJobs.forEach { it.cancel() }
         watchJobs = emptyList()
@@ -288,6 +293,7 @@ class VoiceLabViewModel(
         session = null
         warm = null
         // viewModelScope is already cancelled here; finish the clean-up on the app scope.
+        if (current != null) PhoneTalkService.stop(graph.appContext)
         graph.scope.launch {
             current?.stop()
             handle?.release()

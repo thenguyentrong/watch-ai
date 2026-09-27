@@ -43,7 +43,7 @@ class TalkTileService : TileService() {
                                 .setCorner(ModifiersBuilders.Corner.Builder().setRadius(dp(BUTTON_DP / 2)).build())
                                 .build(),
                         ).setClickable(ModifiersBuilders.Clickable.Builder().setId("talk").setOnClick(open).build())
-                        .setSemantics(ModifiersBuilders.Semantics.Builder().setContentDescription("Talk to Watch AI").build())
+                        .setSemantics(ModifiersBuilders.Semantics.Builder().setContentDescription("Talk to Buddy").build())
                         .build(),
                 ).addContent(
                     LayoutElementBuilders.Text

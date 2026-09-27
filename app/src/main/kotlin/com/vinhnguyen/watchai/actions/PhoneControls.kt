@@ -119,7 +119,7 @@ class PhoneControls(
             NotificationCompat
                 .Builder(appContext, RING_CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle("Watch AI is ringing your phone")
+                .setContentTitle("Buddy is ringing your phone")
                 .setContentText("Tap Stop when you've found it")
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -211,7 +211,7 @@ class PhoneControls(
         private const val RING_CHANNEL = "find_phone"
         private const val RING_NOTIFICATION = 8
         private const val NEEDS_DND_ACCESS =
-            "error: the user has to allow Watch AI to change Do Not Disturb first, once, in the Watch AI phone app (Voice tab)"
+            "error: the user has to allow Buddy to change Do Not Disturb first, once, in the Buddy phone app (Voice tab)"
     }
 }
 

@@ -169,7 +169,7 @@ class CallService : Service() {
             PendingIntent.getActivity(this, 0, Intent(this, WearActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE),
         ).apply {
             if (talking) {
-                setContentTitle("Talking with Watch AI")
+                setContentTitle("Talking with Buddy")
                 setContentText("Your phone is listening through the watch")
                 addAction(0, "End", PendingIntent.getService(this@CallService, 1, Intent(this@CallService, CallService::class.java).setAction(ACTION_END), PendingIntent.FLAG_IMMUTABLE))
             } else {

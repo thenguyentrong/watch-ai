@@ -6,13 +6,11 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import com.google.android.gms.wearable.ChannelClient
 import com.vinhnguyen.watchai.AppGraph
-import com.vinhnguyen.watchai.actions.BuddyTools
 import com.vinhnguyen.watchai.actions.PhoneActions
 import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.buddy.Mood
 import com.vinhnguyen.watchai.buddy.MoodReader
-import com.vinhnguyen.watchai.buddy.Outfit
 import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.voice.ChatGptRealtimeSession
 import com.vinhnguyen.watchai.voice.VoiceState
@@ -93,13 +91,12 @@ class WatchCalls(
                     watch.setRoute(next)
                 }
             }
-            watch.mascot(outfit = Outfit.parse(graph.settings.buddyOutfit), seed = graph.buddySeed())
+            watch.mascot(seed = graph.buddySeed())
             val tools =
                 Toolboxes(
                     listOf(
                         // Timers and alarms go to the watch unless the user asks for the phone: it's on the wrist, and on screen.
                         PhoneActions(graph.appContext, graph.notes, graph.controls, graph.phoneClock, WatchOnCall(watch), graph.logger),
-                        BuddyTools(graph.settings, graph.logger) { outfit -> watch.mascot(outfit = outfit) },
                     ),
                 ) { name, result -> afterTool(watch, name, result) }
             val s =
@@ -133,7 +130,7 @@ class WatchCalls(
     /** Debug builds: plays [pcm] into the current call as if said on the watch. False if there's no call. */
     fun say(pcm: ShortArray): Boolean = audio?.say(pcm) != null
 
-    /** Buddy after an action: proud when it's done, an oops when it failed, excited in new clothes; reading things shows nothing. */
+    /** Buddy after an action: proud when it's done, an oops when it failed, the play triangle for music; reading things shows nothing. */
     private fun afterTool(
         watch: WatchAudio,
         name: String,
@@ -143,7 +140,7 @@ class WatchCalls(
         val reaction =
             when {
                 result.startsWith("error") -> Reaction(Mood.OOPS, 0.7f)
-                name == BuddyTools.DRESS -> Reaction(Mood.EXCITED, 0.8f)
+                name == PhoneActions.MEDIA && result.startsWith("ok: pressed play") -> Reaction(Mood.PLAY, 0.7f)
                 else -> Reaction(Mood.PROUD, 0.8f)
             }
         watch.mascot(reaction = reaction)

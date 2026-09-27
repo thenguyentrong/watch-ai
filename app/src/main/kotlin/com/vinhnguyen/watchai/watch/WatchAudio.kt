@@ -2,7 +2,6 @@ package com.vinhnguyen.watchai.watch
 
 import android.os.SystemClock
 import android.util.Log
-import com.vinhnguyen.watchai.buddy.Outfit
 import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.voice.ExternalAudio
 import com.vinhnguyen.watchai.voice.VoicePhase
@@ -93,13 +92,12 @@ class WatchAudio(
         }
     }
 
-    /** Buddy on the watch: a reaction (played once, for a few seconds), the outfit, and/or the seed of this user's Buddy. */
+    /** Buddy on the watch: a reaction (played once, for a few seconds) and/or the seed of this user's Buddy. */
     fun mascot(
         reaction: Reaction? = null,
-        outfit: Outfit? = null,
         seed: Long? = null,
     ) {
-        outbox.offer(Frame.Message(Control("mascot", mood = reaction?.mood?.wire, level = reaction?.intensity, outfit = outfit?.wire, seed = seed)))
+        outbox.offer(Frame.Message(Control("mascot", mood = reaction?.mood?.wire, level = reaction?.intensity, seed = seed)))
     }
 
     /** Asks the watch to do something (e.g. set a timer): its answer, or null if none comes in time. */

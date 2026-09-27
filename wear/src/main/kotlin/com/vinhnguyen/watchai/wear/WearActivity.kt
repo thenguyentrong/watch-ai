@@ -165,7 +165,7 @@ private fun WatchScreen(
         }
     }
 
-    val look by vm.link.look.collectAsStateWithLifecycle()
+    val genes by vm.link.genes.collectAsStateWithLifecycle()
     val screen = LocalConfiguration.current
     val scroll = rememberScrollState()
     val focus = remember { FocusRequester() }
@@ -185,15 +185,16 @@ private fun WatchScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             BuddyView(
-                genes = look.genes,
-                outfit = look.outfit,
+                genes = genes,
                 act = act(state.phase, wakeOn && wakeListening),
                 reaction = state.reaction,
                 reactionId = state.reactionId,
                 level = if (ambient) 0f else state.level,
+                paper = Color.Black,
                 ambient = ambient,
-                // Every frame costs the watch's small cores: a calm Buddy redraws 10 times a second, a talking one 30.
-                fps = if (active) 30 else 10,
+                // Every frame costs the watch's small cores: 10 a second at rest, 20 in a conversation, 30 while a reaction plays.
+                fps = if (active) 20 else 10,
+                busyFps = 30,
                 modifier =
                 Modifier
                     .size((screen.screenWidthDp * 0.74f).dp)

@@ -21,7 +21,6 @@ import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.Wearable
 import com.vinhnguyen.watchai.buddy.Genes
 import com.vinhnguyen.watchai.buddy.Mood
-import com.vinhnguyen.watchai.buddy.Outfit
 import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.watchlink.Adpcm
 import com.vinhnguyen.watchai.watchlink.Control
@@ -81,12 +80,6 @@ class PhoneVoiceLink private constructor(
         val reactionId: Int = 0,
     )
 
-    /** This user's Buddy and what it wears: kept on the watch, updated by the phone at every call. */
-    data class Look(
-        val genes: Genes,
-        val outfit: Outfit,
-    )
-
     private val appContext = context.applicationContext
     private val channels = Wearable.getChannelClient(appContext)
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
@@ -128,15 +121,10 @@ class PhoneVoiceLink private constructor(
     private val actions = WatchActions(appContext)
 
     private val prefs = appContext.getSharedPreferences("wear", Context.MODE_PRIVATE)
-    private val _look =
-        MutableStateFlow(
-            Look(
-                // Until the first call brings this user's seed, a Buddy of this watch's own.
-                Genes.of(prefs.getLong(SEED, 0L).takeIf { it != 0L } ?: Random.nextLong().also { seed -> prefs.edit { putLong(SEED, seed) } }),
-                Outfit.parse(prefs.getString(OUTFIT, null)),
-            ),
-        )
-    val look: StateFlow<Look> = _look.asStateFlow()
+
+    /** This user's Buddy: kept on the watch, updated by the phone at every call. Until the first call, a Buddy of this watch's own. */
+    private val _genes = MutableStateFlow(Genes.of(prefs.getLong(SEED, 0L).takeIf { it != 0L } ?: Random.nextLong().also { seed -> prefs.edit { putLong(SEED, seed) } }))
+    val genes: StateFlow<Genes> = _genes.asStateFlow()
 
     suspend fun start() {
         lifecycle.withLock {
@@ -259,13 +247,9 @@ class PhoneVoiceLink private constructor(
             "timer", "alarm", "battery" -> outbox.offer(Frame.Message(Control("done", id = control.id, text = actions.run(control, onScreen))))
 
             "mascot" -> {
-                control.seed?.takeIf { it != _look.value.genes.seed }?.let { seed ->
+                control.seed?.takeIf { it != _genes.value.seed }?.let { seed ->
                     prefs.edit { putLong(SEED, seed) }
-                    _look.update { it.copy(genes = Genes.of(seed)) }
-                }
-                control.outfit?.let { wire ->
-                    prefs.edit { putString(OUTFIT, wire) }
-                    _look.update { it.copy(outfit = Outfit.parse(wire)) }
+                    _genes.value = Genes.of(seed)
                 }
                 Mood.of(control.mood)?.let { mood ->
                     _state.update { it.copy(reaction = Reaction(mood, control.level ?: 0.6f), reactionId = it.reactionId + 1) }
@@ -472,7 +456,6 @@ class PhoneVoiceLink private constructor(
     companion object {
         private const val PING_MS = 2_000L
         private const val SEED = "buddy_seed"
-        private const val OUTFIT = "buddy_outfit"
         private const val TAG = "WatchLink"
         private const val MIC_SILENCE = 0.004f
         private const val MIC_HANGOVER = 8 // 320 ms

@@ -21,6 +21,9 @@ public enum class Mood {
     CONFUSED,
     PROUD,
     OOPS,
+
+    /** Music or a video starts: the play triangle. */
+    PLAY,
     ;
 
     public val wire: String get() = name.lowercase(Locale.ROOT)

@@ -39,7 +39,7 @@ internal class WatchActions(
         request: Control,
         onScreen: Boolean,
     ): String {
-        if (!onScreen) return "error: Watch AI isn't on the watch screen, so it can't open the watch's clock. Ask the user to open it and try again."
+        if (!onScreen) return "error: Buddy isn't on the watch screen, so it can't open the watch's clock. Ask the user to open it and try again."
         val (intent, done) =
             when (request.type) {
                 "timer" -> {

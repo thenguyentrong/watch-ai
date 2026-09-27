@@ -2,58 +2,27 @@ package com.vinhnguyen.watchai.buddy
 
 import java.security.MessageDigest
 import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
- * What makes one user's Buddy theirs: body shape, colour, eyes, a little something on top, and
- * markings, all from one seed. The seed comes from a hash of the user's id, so every user gets
- * their own Buddy and keeps it for good; the id itself never leaves the phone.
+ * What makes one user's Buddy theirs: body shape, colour and resting face, all from one seed.
+ * The seed comes from a hash of the user's id, so every user gets their own Buddy and keeps it
+ * for good; the id itself never leaves the phone.
  *
  * Changing what a seed produces changes every existing Buddy, so [Rng] and the order of the
  * draws in [of] are fixed: add new traits at the end only.
  */
 public data class Genes(
     val seed: Long,
-    val shape: Shape,
-    /** Small seeded bumps on the outline: amplitude and phase for harmonics 2, 3 and 4 (4 kept flat: it looked lumpy). */
-    val bumps: List<Pair<Float, Float>>,
-    val color: Palette,
-    val eyes: EyeStyle,
-    /** Eye distance from the middle, as a fraction of the body radius. */
-    val eyeGap: Float,
-    /** Eye height: 0 = the middle, negative = higher. */
-    val eyeHeight: Float,
-    val eyeSize: Float,
-    val top: Top,
-    val mark: Mark,
-    val cheeks: Boolean,
+    val shape: BodyShape,
+    val color: Tint,
+    val rest: RestFace,
+    /** The resting face: [rest] nudged a little by the seed. */
+    val face: Expression = rest.face,
 ) {
-    public enum class Shape { ROUND, SQUIRCLE, PEBBLE, EGG, BELL, BEAN, CLOUD, GUMDROP }
-
-    public enum class EyeStyle { CAPSULE, ROUND, DOT, BEAN }
-
-    /** Something on top of the head (under any hat). */
-    public enum class Top { NONE, LOOP, SPROUT, ANTENNA, EARS, TUFT, NUBS }
-
-    public enum class Mark { NONE, BELLY, SPOTS }
-
-    /** Body colours, picked to look good on a black watch screen and to keep dark eyes readable. */
-    public enum class Palette(
-        public val body: Long,
-        public val shade: Long,
-    ) {
-        PEARL(0xFFF1EEFB, 0xFFCFC7EE),
-        PINK(0xFFFFA8C0, 0xFFE67A98),
-        PEACH(0xFFFFC09A, 0xFFE8946A),
-        BUTTER(0xFFFFE08A, 0xFFE6B94E),
-        LIME(0xFFC8E68A, 0xFF97C25A),
-        MINT(0xFF9BE8C8, 0xFF5FC39C),
-        SKY(0xFF9FD4FF, 0xFF64A9E6),
-        LILAC(0xFFC9B6FF, 0xFF9A82E6),
-        BERRY(0xFFF08BC0, 0xFFC95C96),
-        COCOA(0xFFD9B8A0, 0xFFB08A70),
-        SLATE(0xFFB9C7D6, 0xFF8799AD),
-        CORAL(0xFFFF9C8A, 0xFFE06A57),
-    }
+    /** The resting outline, radii at [Silhouette.SAMPLES] angles. */
+    public val body: FloatArray get() = shape.radii
 
     public companion object {
         /** A Buddy for [userId] (e.g. the ChatGPT account id): the same id always gives the same Buddy. */
@@ -67,24 +36,116 @@ public data class Genes(
 
         public fun of(seed: Long): Genes {
             val rng = Rng(seed)
-            val shape = Shape.entries[rng.nextInt(Shape.entries.size)]
-            val bumps = (2..4).map { k -> rng.nextFloat() * (if (k == 4) 0f else 0.012f) to rng.nextFloat() * 2 * PI.toFloat() }
-            return Genes(
-                seed = seed,
-                shape = shape,
-                bumps = bumps,
-                color = Palette.entries[rng.nextInt(Palette.entries.size)],
-                eyes = EyeStyle.entries[rng.nextInt(EyeStyle.entries.size)],
-                eyeGap = 0.3f + rng.nextFloat() * 0.1f,
-                eyeHeight = -0.16f + rng.nextFloat() * 0.14f,
-                eyeSize = 0.9f + rng.nextFloat() * 0.25f,
-                top = Top.entries[rng.nextInt(Top.entries.size)],
-                mark = Mark.entries[rng.nextInt(Mark.entries.size)],
-                cheeks = rng.nextFloat() < 0.7f,
+            val shape = BodyShape.entries[rng.nextInt(BodyShape.entries.size)]
+            val color = Tint.entries[rng.nextInt(Tint.entries.size)]
+            val rest = RestFace.entries[rng.nextInt(RestFace.entries.size)]
+            val base = rest.face
+            fun around(span: Float) = (rng.nextFloat() * 2 - 1) * span
+            val gaze = Gaze(base.gaze.yaw + around(5f), base.gaze.pitch + around(4f), base.gaze.roll + around(4f))
+            val eyeScale = 1 + around(0.08f)
+            val face = base.copy(
+                gaze = gaze,
+                split = base.split + around(1f),
+                eyes = base.eyes.let { (a, b) -> a.copy(w = a.w * eyeScale, h = a.h * eyeScale) to b.copy(w = b.w * eyeScale, h = b.h * eyeScale) },
+                mouth = base.mouth.copy(w = base.mouth.w * (1 + around(0.1f))),
             )
+            return Genes(seed, shape, color, rest, face)
         }
     }
 }
+
+/**
+ * Resting bodies, built from simple maths rather than traced from anything, each scaled so they
+ * weigh about the same to the eye.
+ */
+public enum class BodyShape(
+    internal val radii: FloatArray,
+) {
+    ROUND(FloatArray(Silhouette.SAMPLES) { 1f }),
+    PEBBLE(Shapes.PEBBLE),
+    SQUIRCLE(Silhouette.normalized(Silhouette.superellipse(3.6f), 1.1f)),
+    EGG(Shapes.EGG),
+    GUMDROP(Shapes.GUMDROP),
+    BUN(Silhouette.normalized(Silhouette.superellipse(2.6f, 1.12f, 0.92f), 1.1f)),
+    CLOUD(Shapes.CLOUD),
+    TALL(Silhouette.normalized(Silhouette.superellipse(2.5f, 0.9f, 1.06f), 1.06f)),
+}
+
+internal object Shapes {
+    private fun each(f: (Float) -> Float) = FloatArray(Silhouette.SAMPLES) { f(Silhouette.angle(it)) }
+
+    /** A circle with two low, soft bumps: uneven but smooth. */
+    val PEBBLE: FloatArray = Silhouette.normalized(each { a -> 1 + 0.07f * cos(2 * a + 0.9f) + 0.03f * cos(3 * a + 1.4f) }, 1.02f)
+
+    /** Wider at the bottom (y points down). */
+    val EGG: FloatArray = Silhouette.normalized(
+        Silhouette.fromPolygon(List(96) { i -> (i * 2 * PI.toFloat() / 96).let { a -> Pt(0.84f * cos(a) * (1 + 0.13f * sin(a)), sin(a)) } }),
+        1.04f,
+    )
+
+    /** A dome over a flat, soft bottom. */
+    val GUMDROP: FloatArray = Silhouette.normalized(
+        Silhouette.superellipse(3.2f).let { flat -> each { a -> if (sin(a) > 0) lerp(1f, Silhouette.radiusAt(flat, a), sin(a)) else 1f } },
+        1.06f,
+    )
+
+    /** Bumps: two lobes on top, wide at the bottom. */
+    val CLOUD: FloatArray = Silhouette.normalized(
+        Silhouette.unionOfCircles(
+            listOf(
+                Triple(-0.42f, 0.18f, 0.56f),
+                Triple(0.44f, 0.2f, 0.52f),
+                Triple(0f, 0.28f, 0.62f),
+                Triple(-0.22f, -0.28f, 0.5f),
+                Triple(0.28f, -0.22f, 0.46f),
+            ),
+        ),
+        1.04f,
+    )
+}
+
+/**
+ * Body colours, picked to read on a black watch screen with black eyes cut out of them, and the
+ * hue their rings and sparks take: one colour per Buddy, never a rainbow.
+ */
+public enum class Tint(
+    public val body: Long,
+    public val hue: Float,
+) {
+    MILK(0xFFF3F1EC, 205f),
+    CORAL(0xFFFF8A73, 9f),
+    TANGERINE(0xFFFFA64D, 30f),
+    SUN(0xFFFFD45C, 44f),
+    LIME(0xFFC2E66B, 78f),
+    MINT(0xFF6FE3B4, 155f),
+    AQUA(0xFF5ED6E0, 185f),
+    SKY(0xFF6CB8FF, 210f),
+    PERI(0xFF8F9BFF, 233f),
+    LILAC(0xFFC0A2FF, 262f),
+    PINK(0xFFFF8CC6, 330f),
+    SAND(0xFFE8C9A0, 35f),
+}
+
+/** The resting faces a Buddy is born with. Eyes are pills, the mouth a band below them. */
+public enum class RestFace(
+    public val face: Expression,
+) {
+    CALM(Expression(Gaze(12f, 16f, -8f), 16.5f, pair(0.2f, 0.4f), Mouth(0.22f, 0.32f))),
+    BRIGHT(Expression(Gaze(8f, 12f, -4f), 17.5f, pair(0.22f, 0.44f), Mouth(0.26f, 0.42f, open = 0.03f))),
+    SLY(Expression(Gaze(15f, 14f, -10f), 16f, Eye(0.2f, 0.4f) to Eye(0.21f, 0.3f), Mouth(0.2f, 0.26f, tilt = -10f))),
+    SOFT(Expression(Gaze(10f, 18f, -6f), 15.5f, pair(0.18f, 0.34f), Mouth(0.16f, 0.36f, thick = 0.045f))),
+    BUTTON(Expression(Gaze(6f, 14f, -5f), 17f, pair(0.25f, 0.3f), Mouth(0.18f, 0.3f))),
+    DREAMY(Expression(Gaze(8f, 10f, -3f), 16.5f, pair(0.2f, 0.4f, open = 0.62f), Mouth(0.18f, 0.22f))),
+    PERKY(Expression(Gaze(-6f, 18f, 7f), 16.5f, pair(0.21f, 0.42f, tilt = 5f), Mouth(0.24f, 0.45f))),
+    CHEEKY(Expression(Gaze(14f, 12f, -9f), 17f, pair(0.21f, 0.38f, tilt = -6f), Mouth(0.26f, 0.38f, open = 0.06f))),
+}
+
+private fun pair(
+    w: Float,
+    h: Float,
+    tilt: Float = 0f,
+    open: Float = 1f,
+) = Eye(w, h, open, tilt) to Eye(w, h, open, -tilt)
 
 /**
  * SplitMix64: tiny, fast, and fixed by its definition (Steele, Lea and Flood, OOPSLA 2014), so
