@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Timers and alarms asked for in a conversation go to the watch's own clock. -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- "Hey Buddy" over the watch face: Android only lets the face come up through a full-screen notification. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:allowBackup="false"

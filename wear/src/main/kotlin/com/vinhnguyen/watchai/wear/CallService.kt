@@ -114,13 +114,37 @@ class CallService : Service() {
         if (talking) refresh() else stopSelf()
     }
 
-    /** "Hey Buddy" was heard: a tick on the wrist, the face if Android lets it come up, and talk. */
+    /** "Hey Buddy" was heard: a tick on the wrist, the face, and talk. */
     @SuppressLint("WearRecents") // started from a service, so it needs its own task
     private fun heard() {
         runCatching { getSystemService(VibratorManager::class.java)?.defaultVibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)) }
-        // From the background Android may not show it; the conversation runs either way.
+        // Works while the app is on screen. Over the watch face Android blocks it (27.09), so the face comes up
+        // through a full-screen notification, like an incoming call; the conversation runs either way.
         runCatching { startActivity(Intent(this, WearActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        showFace()
         scope.launch { PhoneVoiceLink.get(this@CallService).start() }
+    }
+
+    @SuppressLint("MissingPermission") // checked: areNotificationsEnabled
+    private fun showFace() {
+        val notifications = NotificationManagerCompat.from(this)
+        if (!notifications.areNotificationsEnabled()) return
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(NotificationChannel(FACE_CHANNEL, "Hey Buddy", NotificationManager.IMPORTANCE_HIGH).apply { setSound(null, null) })
+        val face = PendingIntent.getActivity(this, 3, Intent(this, WearActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val notification =
+            NotificationCompat
+                .Builder(this, FACE_CHANNEL)
+                .setSmallIcon(R.drawable.ic_launcher)
+                .setContentTitle("Listening")
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(face)
+                .setFullScreenIntent(face, true)
+                .setAutoCancel(true)
+                .setTimeoutAfter(FACE_TIMEOUT_MS)
+                .build()
+        notifications.notify(FACE_NOTIFICATION, notification)
     }
 
     private fun goForeground() {
@@ -158,6 +182,9 @@ class CallService : Service() {
     companion object {
         private const val CHANNEL = "conversation"
         private const val NOTIFICATION_ID = 1
+        private const val FACE_CHANNEL = "hey_buddy"
+        private const val FACE_NOTIFICATION = 2
+        private const val FACE_TIMEOUT_MS = 15_000L
         private const val ACTION_TALK = "com.vinhnguyen.watchai.wear.TALK"
         private const val ACTION_END = "com.vinhnguyen.watchai.wear.END"
         private const val ACTION_WAKE_ON = "com.vinhnguyen.watchai.wear.WAKE_ON"
@@ -181,6 +208,11 @@ class CallService : Service() {
 
         fun talked() {
             instance?.onTalked()
+        }
+
+        /** The face is up: the full-screen notification that brought it has done its job. */
+        fun faceShown(context: Context) {
+            NotificationManagerCompat.from(context).cancel(FACE_NOTIFICATION)
         }
 
         /** Switches "Hey Buddy" on. Call while the app is on screen. */

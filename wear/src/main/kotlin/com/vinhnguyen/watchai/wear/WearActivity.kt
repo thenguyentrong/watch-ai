@@ -76,6 +76,7 @@ class WearActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         PhoneVoiceLink.get(this).onScreen = true
+        CallService.faceShown(this)
         // "Hey Buddy" is on but not running (the watch restarted, or Android stopped it): the app is on screen, so it can start.
         if (WakeSetting.isOn(this) && !CallService.armed.value && micAllowed()) CallService.wakeOn(this)
     }
@@ -141,7 +142,11 @@ private fun WatchScreen(
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) vm.toggle() }
-    val wakePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) vm.setWake(true) }
+    // Notifications only bring the face up over the watch face; "Hey Buddy" works without them.
+    val wakePermission =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+            if (granted[Manifest.permission.RECORD_AUDIO] == true) vm.setWake(true)
+        }
     val onTap = {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             vm.toggle()
@@ -183,11 +188,8 @@ private fun WatchScreen(
                 SwitchButton(
                     checked = wakeOn,
                     onCheckedChange = { on ->
-                        if (on && context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                            wakePermission.launch(Manifest.permission.RECORD_AUDIO)
-                        } else {
-                            vm.setWake(on)
-                        }
+                        val missing = WAKE_PERMISSIONS.filter { context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+                        if (on && missing.isNotEmpty()) wakePermission.launch(missing.toTypedArray()) else vm.setWake(on)
                     },
                     label = { Text("Hey Buddy") },
                     modifier = Modifier.padding(horizontal = 36.dp),
@@ -196,6 +198,8 @@ private fun WatchScreen(
         }
     }
 }
+
+private val WAKE_PERMISSIONS = listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
 
 private fun label(
     state: PhoneVoiceLink.State,
