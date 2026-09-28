@@ -144,6 +144,8 @@ class ChatGptRealtimeSession(
      */
     @Volatile private var lastActivityAt = 0L
     private var idleReported = false
+
+    @Volatile private var heardUser = false
     private val seenTypes = mutableSetOf<String>()
 
     override suspend fun start() {
@@ -347,6 +349,9 @@ class ChatGptRealtimeSession(
         // Loudest mic level over each answer, logged with the leak and the threshold: shows why a talk-over did or didn't mute.
         var micPeak = 0.0
         var answering = false
+        // And the loudest mic level while listening, every 2 s: shows whether the user's voice arrives at all.
+        var listenPeak = 0.0
+        var listenLoggedAt = 0L
         val start = SystemClock.elapsedRealtime()
         lastActivityAt = start
         while (currentCoroutineContext().isActive) {
@@ -356,6 +361,12 @@ class ChatGptRealtimeSession(
                 is TurnTimer.Event.Turn -> _state.update { it.copy(metrics = it.metrics.withTurn(event.latencyMs)) }
                 is TurnTimer.Event.Interrupt -> note("OpenAI stopped the answer after ${event.latencyMs} ms")
                 null -> Unit
+            }
+            if (!timer.assistantSpeaking) listenPeak = maxOf(listenPeak, user)
+            if (now - listenLoggedAt >= LISTEN_LOG_MS) {
+                listenLoggedAt = now
+                if (!timer.assistantSpeaking) logger.log(LogEvent.Engine("voice_listen_mic_peak${(listenPeak * 1000).toInt()}", "gpt-live"))
+                listenPeak = 0.0
             }
             if (timer.assistantSpeaking) {
                 micPeak = maxOf(micPeak, user)
@@ -395,7 +406,9 @@ class ChatGptRealtimeSession(
             }
             val clock = start + now
             if (timer.assistantSpeaking || consultJob?.isActive == true) lastActivityAt = clock
-            val idleLimit = idleHangUpMs
+            // Before the first words, more time: the start can be slow (a sleeping phone took 5.4 s to
+            // connect, 28.09) and people wait for the chime.
+            val idleLimit = idleHangUpMs?.let { if (heardUser) it else maxOf(it, FIRST_WORDS_MS) }
             if (idleLimit != null && !idleReported && clock - lastActivityAt >= idleLimit) {
                 idleReported = true
                 note("hung up after ${idleLimit / 1000} s of quiet")
@@ -516,6 +529,7 @@ class ChatGptRealtimeSession(
 
     private fun onUserText(event: QuicksilverWire.Event.UserText) {
         lastActivityAt = SystemClock.elapsedRealtime()
+        heardUser = true
         if (event.final) {
             userTurnOpen = false
             remember(ChatTurn.Role.USER, event.text)
@@ -632,6 +646,8 @@ class ChatGptRealtimeSession(
         private const val CALL_URL = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
         private const val ICE_GATHER_TIMEOUT_MS = 400L
         private const val POLL_MS = 50L
+        private const val LISTEN_LOG_MS = 2_000L
+        private const val FIRST_WORDS_MS = 20_000L
         private const val MAX_TRANSCRIPT = 16
         private const val CONSULT_HISTORY = 6
         val VOICES = listOf("cove", "arbor", "breeze", "ember", "juniper", "maple", "sol", "spruce", "vale")
