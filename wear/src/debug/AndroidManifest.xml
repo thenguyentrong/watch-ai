@@ -7,6 +7,21 @@
             android:name=".HearWav"
             android:exported="true"
             android:permission="android.permission.DUMP" />
+        <!-- Debug builds only: tune "Hey Buddy" on a batch of WAVs from adb. -->
+        <receiver
+            android:name=".TuneWake"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <!-- Debug builds only: say a WAV out of the watch speaker, to test "Hey Buddy" through the mic. -->
+        <receiver
+            android:name=".SpeakWav"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <!-- Debug builds only: teach "Hey Buddy" from WAV takes instead of the mic. -->
+        <receiver
+            android:name=".TeachWav"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
         <!-- Debug builds only: a frozen Buddy for screenshots, started from adb. -->
         <activity
             android:name=".BuddyShowcase"
