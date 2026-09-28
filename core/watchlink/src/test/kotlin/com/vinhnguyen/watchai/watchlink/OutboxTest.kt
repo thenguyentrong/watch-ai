@@ -72,6 +72,15 @@ class OutboxTest {
     }
 
     @Test
+    fun `the listening chime is short, soft and starts and ends quietly`() {
+        val chime = Chime.pcm(16_000)
+        assertThat(chime.size).isIn(com.google.common.collect.Range.closed(3_500, 4_500))
+        assertThat(chime.maxOf { kotlin.math.abs(it.toInt()) }).isLessThan((Short.MAX_VALUE * 0.31).toInt())
+        assertThat(kotlin.math.abs(chime.first().toInt())).isLessThan(200)
+        assertThat(kotlin.math.abs(chime.last().toInt())).isLessThan(2_000)
+    }
+
+    @Test
     fun `a queue trimmed back keeps the newest samples`() {
         val q = PcmQueue(10)
         q.offer(ShortArray(8) { it.toShort() })

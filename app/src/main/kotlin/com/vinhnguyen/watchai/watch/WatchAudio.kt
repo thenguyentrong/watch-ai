@@ -1,11 +1,15 @@
 package com.vinhnguyen.watchai.watch
 
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.os.SystemClock
 import android.util.Log
 import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.voice.ExternalAudio
 import com.vinhnguyen.watchai.voice.VoicePhase
 import com.vinhnguyen.watchai.watchlink.Adpcm
+import com.vinhnguyen.watchai.watchlink.Chime
 import com.vinhnguyen.watchai.watchlink.Control
 import com.vinhnguyen.watchai.watchlink.Frame
 import com.vinhnguyen.watchai.watchlink.FrameCodec
@@ -80,6 +84,8 @@ class WatchAudio(
     private val pendingLock = Any()
 
     @Volatile private var lastStatusAt = 0L
+
+    @Volatile private var chimed = false
 
     @Volatile private var closed = false
     private var writer: Thread? = null
@@ -281,6 +287,30 @@ class WatchAudio(
         }
     }
 
+    /** The chime into the earbuds or headphones, on the call's audio so it goes where the answers go. */
+    private fun chimeOnPhone() {
+        thread(name = "watch-chime", isDaemon = true) {
+            runCatching {
+                val pcm = Chime.pcm(WatchLink.SAMPLE_RATE)
+                val track =
+                    AudioTrack
+                        .Builder()
+                        .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                        .setAudioFormat(AudioFormat.Builder().setSampleRate(WatchLink.SAMPLE_RATE).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+                        .setBufferSizeInBytes(pcm.size * 2)
+                        .setTransferMode(AudioTrack.MODE_STATIC)
+                        .build()
+                try {
+                    track.write(pcm, 0, pcm.size)
+                    track.play()
+                    Thread.sleep(pcm.size * 1_000L / WatchLink.SAMPLE_RATE + 100)
+                } finally {
+                    track.release()
+                }
+            }
+        }
+    }
+
     override fun flushAnswer() {
         synchronized(pendingLock) { pendingCount = 0 }
         outbox.clearAudio()
@@ -291,6 +321,11 @@ class WatchAudio(
         phase: VoicePhase,
         level: Float,
     ) {
+        // Listening for the first time: a chime where the answers play. The watch chimes itself.
+        if (phase == VoicePhase.LISTENING && !chimed) {
+            chimed = true
+            if (answerOnPhone) chimeOnPhone()
+        }
         val now = SystemClock.elapsedRealtime()
         if (now - lastStatusAt < STATUS_EVERY_MS) return
         lastStatusAt = now

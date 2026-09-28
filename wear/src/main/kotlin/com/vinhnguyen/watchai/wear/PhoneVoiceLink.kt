@@ -23,6 +23,7 @@ import com.vinhnguyen.watchai.buddy.Genes
 import com.vinhnguyen.watchai.buddy.Mood
 import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.watchlink.Adpcm
+import com.vinhnguyen.watchai.watchlink.Chime
 import com.vinhnguyen.watchai.watchlink.Control
 import com.vinhnguyen.watchai.watchlink.EarlySpeech
 import com.vinhnguyen.watchai.watchlink.Frame
@@ -113,6 +114,8 @@ class PhoneVoiceLink private constructor(
 
     @Volatile private var earlySent = false
 
+    @Volatile private var chimed = false
+
     /** Whether the watch plays the answer and records the user; null until the phone says (it does so right away). */
     @Volatile private var speakerOn: Boolean? = null
 
@@ -142,6 +145,7 @@ class PhoneVoiceLink private constructor(
             answered = false
             early.drain()
             earlySent = false
+            chimed = false
             speakerOn = null
             micOn = null
             phoneHungUp = false
@@ -259,6 +263,11 @@ class PhoneVoiceLink private constructor(
         when (control.type) {
             "status" -> {
                 val phase = runCatching { Phase.valueOf(control.phase.orEmpty().uppercase()) }.getOrNull() ?: return
+                // Listening for the first time: a chime on the watch, unless the answers play on the phone (which chimes itself).
+                if (phase == Phase.LISTENING && !chimed) {
+                    chimed = true
+                    if (speakerOn == true) playback.offer(Chime.pcm(WatchLink.SAMPLE_RATE))
+                }
                 // Listening: show the user's own loudness, measured here with no delay (unless earbuds are the mic).
                 val level = if (phase == Phase.LISTENING && micOn != false) micLevel else control.level ?: 0f
                 _state.update { it.copy(phase = phase, level = level, detail = null) }
@@ -327,6 +336,7 @@ class PhoneVoiceLink private constructor(
         var lastLevelAt = 0L
         try {
             record.startRecording()
+            Log.i(TAG, "mic open, audio mode ${audioManager.mode}")
             while (isActive && micOn != false) {
                 val readStart = SystemClock.elapsedRealtime()
                 val n = record.read(frame, 0, frame.size)
@@ -335,6 +345,7 @@ class PhoneVoiceLink private constructor(
                 if (n < frame.size) stats.add("readShort")
                 if (n <= 0) continue
                 micLevel = Pcm.level(frame, n)
+                stats.max("micPeak", (micLevel * 10_000).toLong())
                 // The face follows the voice at 10 updates a second; more only costs the watch CPU.
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastLevelAt >= LEVEL_EVERY_MS && _state.value.phase == Phase.LISTENING) {
