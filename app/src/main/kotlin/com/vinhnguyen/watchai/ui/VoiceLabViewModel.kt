@@ -74,37 +74,6 @@ class VoiceLabViewModel(
     private var visible = false
     private var stopLater: Job? = null
 
-    /** The user's notes (newest last) and which actions the user has allowed, for "Things it can do". */
-    val notes: StateFlow<List<NoteStore.Note>> = graph.notes.notes
-    private val _calendarAllowed = MutableStateFlow(graph.actions.calendarAllowed())
-    val calendarAllowed: StateFlow<Boolean> = _calendarAllowed.asStateFlow()
-    private val _clockFromPocket = MutableStateFlow(graph.phoneClock.worksFromPocket())
-    val clockFromPocket: StateFlow<Boolean> = _clockFromPocket.asStateFlow()
-    private val _doNotDisturbAllowed = MutableStateFlow(graph.controls.doNotDisturbAllowed())
-    val doNotDisturbAllowed: StateFlow<Boolean> = _doNotDisturbAllowed.asStateFlow()
-    private val _textsAndCallsAllowed = MutableStateFlow(textsAndCallsGranted())
-    val textsAndCallsAllowed: StateFlow<Boolean> = _textsAndCallsAllowed.asStateFlow()
-    private val _inboxAllowed = MutableStateFlow(MessageInbox.allowed(graph.appContext))
-    val inboxAllowed: StateFlow<Boolean> = _inboxAllowed.asStateFlow()
-
-    private fun textsAndCallsGranted() = ReachActions.PERMISSIONS.all { graph.appContext.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
-
-    init {
-        viewModelScope.launch { runCatching { graph.notes.list() } }
-    }
-
-    fun refreshPermissions() {
-        _calendarAllowed.value = graph.actions.calendarAllowed()
-        _clockFromPocket.value = graph.phoneClock.worksFromPocket()
-        _doNotDisturbAllowed.value = graph.controls.doNotDisturbAllowed()
-        _textsAndCallsAllowed.value = textsAndCallsGranted()
-        _inboxAllowed.value = MessageInbox.allowed(graph.appContext)
-    }
-
-    fun deleteNote(id: Long) {
-        viewModelScope.launch { runCatching { graph.notes.delete(id) } }
-    }
-
     /**
      * The app went to the background (e.g. the clock app opened for a timer). With the talk service
      * holding the mic the conversation just goes on; without it Android silences the mic, so keep
@@ -123,7 +92,6 @@ class VoiceLabViewModel(
     fun onForeground() {
         stopLater?.cancel()
         stopLater = null
-        refreshPermissions()
     }
 
     fun setVoice(voice: String) {

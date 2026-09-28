@@ -62,6 +62,8 @@ compose-foundation = { module = "androidx.compose.foundation:foundation" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
+# Frozen at 1.7.8 (no newer release): the menu and back icons.
+compose-material-icons-core = { module = "androidx.compose.material:material-icons-core", version = "1.7.8" }
 
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "genai-prompt" }

@@ -6,6 +6,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -14,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -31,15 +33,19 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.vinhnguyen.watchai.AppSettings
 import com.vinhnguyen.watchai.BuildConfig
 import com.vinhnguyen.watchai.brain.BrainId
+import com.vinhnguyen.watchai.voice.ChatGptRealtimeSession
 import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
+    settings: AppSettings,
     onDeleteEverything: suspend () -> Unit,
     benchmark: BenchmarkViewModel?,
 ) {
+    var voice by remember { mutableStateOf(settings.voice) }
     var confirm by remember { mutableStateOf(false) }
     var deleted by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -48,6 +54,22 @@ fun SettingsScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Text("Buddy's voice", style = MaterialTheme.typography.titleMedium)
+        Text("On the watch and on this phone, from your next conversation.", style = MaterialTheme.typography.bodyMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChatGptRealtimeSession.VOICES.forEach { v ->
+                FilterChip(
+                    selected = voice == v,
+                    onClick = {
+                        settings.voice = v
+                        voice = v
+                    },
+                    label = { Text(v.replaceFirstChar { it.uppercase() }) },
+                )
+            }
+        }
+
+        HorizontalDivider()
         Text("Privacy", style = MaterialTheme.typography.titleMedium)
         Text(
             "Chats stay in memory and disappear when you close the app. Your ChatGPT sign-in is encrypted with a key " +

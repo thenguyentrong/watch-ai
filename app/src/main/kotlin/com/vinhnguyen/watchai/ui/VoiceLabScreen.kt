@@ -170,7 +170,6 @@ fun VoiceLabScreen(vm: VoiceLabViewModel) {
         Captions(vs)
         Timings(vs, state.savedTo)
         WatchCard(vm)
-        ActionsCard(vm)
         ProbeCard(state, onRun = { withMic { vm.runProbe() } })
     }
 }
@@ -357,95 +356,6 @@ private fun WatchCard(vm: VoiceLabViewModel) {
                 )
             }
         }
-    }
-}
-
-/** What the assistant can do on this phone, the calendar permission, and the notes it keeps. */
-@Composable
-private fun ActionsCard(vm: VoiceLabViewModel) {
-    val calendarAllowed by vm.calendarAllowed.collectAsStateWithLifecycle()
-    val clockFromPocket by vm.clockFromPocket.collectAsStateWithLifecycle()
-    val doNotDisturbAllowed by vm.doNotDisturbAllowed.collectAsStateWithLifecycle()
-    val textsAndCalls by vm.textsAndCallsAllowed.collectAsStateWithLifecycle()
-    val inboxAllowed by vm.inboxAllowed.collectAsStateWithLifecycle()
-    val notes by vm.notes.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    var showNotes by rememberSaveable { mutableStateOf(false) }
-    val calendarPermission =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.refreshPermissions() }
-    Card(Modifier.fillMaxWidth().animateContentSize()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Things it can do on this phone", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Ask with ChatGPT voice or in Chat, for example \"add milk to my notes\", \"remind me at six to call Mum\", " +
-                    "\"where's my phone?\", \"pause the music\", \"text Anna I'm running late\", \"read my messages\", " +
-                    "\"open Spotify\" or \"what's on my calendar tomorrow?\". Say \"bye\" to end. " +
-                    "Messages and calls always wait for your yes. What you ask to add, read or send goes to ChatGPT on your account.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ActionRow("Calendar and reminders", if (calendarAllowed) "Allowed" else "Needs your OK") {
-                if (!calendarAllowed) {
-                    Button(onClick = { calendarPermission.launch(PhoneActions.CALENDAR_PERMISSIONS) }) { Text("Allow") }
-                }
-            }
-            ActionRow("Timers and alarms", "On the device you talk through, or where you say")
-            ActionRow("Texts and calls", if (textsAndCalls) "Allowed · always read back, sent only after your yes" else "Needs your OK: contacts, texts, calls") {
-                if (!textsAndCalls) {
-                    Button(onClick = { calendarPermission.launch(ReachActions.PERMISSIONS) }) { Text("Allow") }
-                }
-            }
-            ActionRow("Read and answer messages", if (inboxAllowed) "Allowed · WhatsApp, Signal, SMS and more, from their notifications" else "Needs your OK: notification access") {
-                if (!inboxAllowed) {
-                    Button(onClick = {
-                        val listener = ComponentName(context, BuddyNotificationListener::class.java).flattenToString()
-                        val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, listener)
-                        runCatching { context.startActivity(detail) }.onFailure { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-                    }) { Text("Allow") }
-                }
-            }
-            ActionRow("Open apps, clock and maps from your pocket", if (clockFromPocket) "Allowed" else "Off: they only open while this app is on screen") {
-                if (!clockFromPocket) {
-                    Button(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.fromParts("package", context.packageName, null)))
-                    }) { Text("Allow") }
-                }
-            }
-            ActionRow("Find my phone, music, volume, battery", "Work with the phone in your pocket")
-            ActionRow("Do Not Disturb and silent mode", if (doNotDisturbAllowed) "Allowed" else "Needs your OK") {
-                if (!doNotDisturbAllowed) {
-                    Button(onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) }) { Text("Allow") }
-                }
-            }
-            ActionRow("Notes", if (notes.isEmpty()) "None yet · kept encrypted in this app" else "${notes.size} · kept encrypted in this app") {
-                if (notes.isNotEmpty()) {
-                    TextButton(onClick = { showNotes = !showNotes }) { Text(if (showNotes) "Hide" else "Show") }
-                }
-            }
-            if (showNotes) {
-                notes.asReversed().take(20).forEach { note ->
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(note.text, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                        TextButton(onClick = { vm.deleteNote(note.id) }) { Text("Delete") }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActionRow(
-    title: String,
-    status: String,
-    action: @Composable () -> Unit = {},
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        action()
     }
 }
 
