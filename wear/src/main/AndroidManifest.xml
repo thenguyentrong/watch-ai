@@ -53,6 +53,11 @@
                 android:resource="@drawable/ic_launcher" />
         </service>
 
+        <!-- "Teach my voice": a few takes of "Hey Buddy", opened from Buddy's settings. -->
+        <activity
+            android:name=".TeachActivity"
+            android:exported="false" />
+
         <activity
             android:name=".WearActivity"
             android:exported="true"

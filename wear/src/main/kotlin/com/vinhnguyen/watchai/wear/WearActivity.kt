@@ -45,6 +45,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.wear.ambient.AmbientLifecycleObserver
 import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
 import androidx.wear.compose.foundation.rotary.rotaryScrollable
+import androidx.wear.compose.material3.FilledTonalButton
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.SwitchButton
 import androidx.wear.compose.material3.Text
@@ -76,7 +77,8 @@ class WearActivity : ComponentActivity() {
         // Wrist down: stay on the face in ambient mode instead of going back to the watch face.
         lifecycle.addObserver(ambientObserver)
         // Opening the app is the "press to talk": from the launcher, the tile or the side button.
-        if (savedInstanceState == null) talkNow()
+        // Tests open it with "quiet" to only switch "Hey Buddy" back on after an install.
+        if (savedInstanceState == null && !intent.getBooleanExtra(QUIET, false)) talkNow()
         setContent {
             val isAmbient by ambient.collectAsStateWithLifecycle()
             MaterialTheme { WatchScreen(ambient = isAmbient) }
@@ -99,7 +101,7 @@ class WearActivity : ComponentActivity() {
     /** Opened again while already running (single task): talk again, unless a conversation is on. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        talkNow()
+        if (!intent.getBooleanExtra(QUIET, false)) talkNow()
     }
 
     private fun micAllowed() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -110,6 +112,10 @@ class WearActivity : ComponentActivity() {
         val link = PhoneVoiceLink.get(this)
         val phase = link.state.value.phase
         if (phase == Phase.IDLE || phase == Phase.ERROR) lifecycleScope.launch { link.start() }
+    }
+
+    private companion object {
+        const val QUIET = "quiet"
     }
 }
 
@@ -129,6 +135,13 @@ class WatchViewModel(
         if (on) CallService.wakeOn(getApplication()) else CallService.wakeOff(getApplication())
     }
 
+    val always = MutableStateFlow(WakeSetting.isAlways(application))
+
+    fun setAlways(on: Boolean) {
+        always.value = on
+        CallService.listenAlways(getApplication(), on)
+    }
+
     // No onCleared clean-up: a conversation outlives the screen (the call service keeps it) and
     // ends from the face, the notification's End action, or the phone.
 }
@@ -142,7 +155,9 @@ private fun WatchScreen(
     val state by vm.link.state.collectAsStateWithLifecycle()
     val wakeOn by CallService.armed.collectAsStateWithLifecycle()
     val wakeListening by WakeListener.listening.collectAsStateWithLifecycle()
+    val always by vm.always.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val taught by remember { WakeSetting.taught(context) }.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
     val active = state.phase != Phase.IDLE && state.phase != Phase.ERROR
     // The screen stays on for the whole conversation.
@@ -226,6 +241,25 @@ private fun WatchScreen(
                 label = { Text("Hey Buddy") },
                 modifier = Modifier.padding(horizontal = 36.dp),
             )
+            if (wakeOn) {
+                Spacer(Modifier.height(4.dp))
+                // Without it "Hey Buddy" needs a raised wrist first; with it there's no hand needed at all.
+                SwitchButton(
+                    checked = always,
+                    onCheckedChange = vm::setAlways,
+                    label = { Text("Always listening") },
+                    secondaryLabel = { Text("Uses more battery") },
+                    modifier = Modifier.padding(horizontal = 36.dp),
+                )
+                Spacer(Modifier.height(4.dp))
+                // When "Hey Buddy" misses the user: five sentences read out teach it their voice.
+                FilledTonalButton(
+                    onClick = { context.startActivity(Intent(context, TeachActivity::class.java)) },
+                    label = { Text("Learn my voice") },
+                    secondaryLabel = { Text(if (taught == true) "Learned" else "Read 5 sentences") },
+                    modifier = Modifier.padding(horizontal = 36.dp).fillMaxWidth(),
+                )
+            }
             Spacer(Modifier.height(48.dp))
         }
     }

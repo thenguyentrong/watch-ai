@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.VibrationEffect
 import android.os.VibratorManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
@@ -34,6 +35,7 @@ class CallService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var wake: WakeListener? = null
     private var talking = false
+    private var teaching = false
 
     override fun onCreate() {
         super.onCreate()
@@ -67,7 +69,11 @@ class CallService : Service() {
             }
 
             else -> {
-                synchronized(this) { talking = true }
+                // Can race "Hey Buddy" being switched on, which starts the service too: the mic is the conversation's.
+                synchronized(this) {
+                    talking = true
+                    wake?.pause()
+                }
                 goForeground()
             }
         }
@@ -92,7 +98,19 @@ class CallService : Service() {
             return
         }
         refresh()
-        listener.resume()
+        if (!teaching) listener.resume()
+    }
+
+    /** Teaching has the mic, and saying "Hey Buddy" then mustn't start a conversation. */
+    @Synchronized
+    private fun onTeach(on: Boolean) {
+        if (teaching == on) return
+        teaching = on
+        if (on) {
+            wake?.pause()
+        } else if (!talking) {
+            wake?.resume()
+        }
     }
 
     @Synchronized
@@ -103,6 +121,12 @@ class CallService : Service() {
         if (talking) wake?.pause()
         _armed.value = true
         refresh()
+    }
+
+    @Synchronized
+    private fun onAlways(on: Boolean) {
+        wake?.listenAlways(on)
+        if (wake != null) refresh()
     }
 
     @Synchronized
@@ -118,6 +142,10 @@ class CallService : Service() {
     @SuppressLint("WearRecents") // started from a service, so it needs its own task
     private fun heard() {
         runCatching { getSystemService(VibratorManager::class.java)?.defaultVibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)) }
+        if (dryWake) {
+            Log.i(TAG, "heard \"Hey Buddy\" (dry run, no call)")
+            return
+        }
         // Works while the app is on screen. Over the watch face Android blocks it (27.09), so the face comes up
         // through a full-screen notification, like an incoming call; the conversation runs either way.
         runCatching { startActivity(Intent(this, WearActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
@@ -174,7 +202,7 @@ class CallService : Service() {
                 addAction(0, "End", PendingIntent.getService(this@CallService, 1, Intent(this@CallService, CallService::class.java).setAction(ACTION_END), PendingIntent.FLAG_IMMUTABLE))
             } else {
                 setContentTitle("\"Hey Buddy\" is on")
-                setContentText("Raise your wrist and say it")
+                setContentText(if (WakeSetting.isAlways(this@CallService)) "Say it any time" else "Raise your wrist and say it")
                 addAction(0, "Turn off", PendingIntent.getService(this@CallService, 2, Intent(this@CallService, CallService::class.java).setAction(ACTION_WAKE_OFF), PendingIntent.FLAG_IMMUTABLE))
             }
         }.build()
@@ -190,7 +218,12 @@ class CallService : Service() {
         private const val ACTION_WAKE_ON = "com.vinhnguyen.watchai.wear.WAKE_ON"
         private const val ACTION_WAKE_OFF = "com.vinhnguyen.watchai.wear.WAKE_OFF"
 
+        private const val TAG = "CallService"
+
         @Volatile private var instance: CallService? = null
+
+        /** Debug builds, testing with a speaker next to the mic: a heard "Hey Buddy" only ticks. */
+        @Volatile internal var dryWake = false
 
         private val _armed = MutableStateFlow(false)
 
@@ -225,11 +258,37 @@ class CallService : Service() {
             if (running != null) running.wakeOff() else WakeSetting.set(context, false)
         }
 
+        /** "Hey Buddy" with the screen off too, not only after a raised wrist. */
+        fun listenAlways(
+            context: Context,
+            on: Boolean,
+        ) {
+            WakeSetting.setAlways(context, on)
+            instance?.onAlways(on)
+        }
+
         /** Debug builds: [pcm] goes to the wake word as if heard. False if "Hey Buddy" is off. */
         fun testWakeWord(pcm: ShortArray): Boolean {
             val listener = instance?.wake ?: return false
             listener.test(pcm)
             return true
+        }
+
+        /** The wake word model (waits for it to load), or null if "Hey Buddy" is off. */
+        internal suspend fun wakeModel(): WakeWord? = instance?.wake?.model()
+
+        /** The teach screen is recording takes: "Hey Buddy" waits meanwhile. */
+        fun teaching(on: Boolean) {
+            instance?.onTeach(on)
+        }
+
+        /** The user's own spellings from teaching, or null to go back to the default phrase. */
+        fun learned(
+            context: Context,
+            keywords: String?,
+        ) {
+            WakeSetting.setKeywords(context, keywords)
+            instance?.wake?.useKeywords(keywords)
         }
     }
 }
