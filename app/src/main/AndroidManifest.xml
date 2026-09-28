@@ -93,7 +93,7 @@
         <service
             android:name=".watch.WatchCallService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:foregroundServiceType="connectedDevice|microphone" />
 
         <service
             android:name=".PhoneTalkService"

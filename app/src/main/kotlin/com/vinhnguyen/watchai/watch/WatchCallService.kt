@@ -54,7 +54,14 @@ class WatchCallService : Service() {
             graph.scope.launch { calls.hangUp() }
             return START_NOT_STICKY
         }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        // Microphone too: with earbuds the phone records itself, and Android hands a background app
+        // without a microphone service only silence (earbud calls with the phone locked, 28.09).
+        try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } catch (e: SecurityException) {
+            Timber.w("watch call without the phone's microphone: %s", e::class.simpleName)
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        }
         val channel = intent?.let { IntentCompat.getParcelableExtra(it, EXTRA_CHANNEL, ChannelClient.Channel::class.java) }
         if (channel == null) {
             stopSelf()
