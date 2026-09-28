@@ -34,6 +34,9 @@ internal class VoiceTeacher(
     private val recognizer = OnlineRecognizer(assets, CONFIG)
     private val tokens: Set<String> = assets.open("kws/tokens.txt").bufferedReader().useLines { lines -> lines.map { it.substringBefore(' ') }.toSet() }
 
+    // What everyone starts with (keywords.txt): taught spellings come on top of these.
+    private val defaults: List<List<String>> = assets.open("kws/keywords.txt").bufferedReader().useLines { lines -> lines.filter { it.isNotBlank() }.map { it.substringBefore(" :").split(' ') }.toList() }
+
     /** What a take gave. Anything but [Heard] asks for it again. */
     sealed interface Take {
         class Heard(
@@ -163,15 +166,15 @@ internal class VoiceTeacher(
         spellings: List<List<String>>,
         word: WakeWord,
     ): Lesson {
-        val shaped = spellings.mapNotNull { shape(it) }.filter { s -> s.all { it in tokens } }
+        val shaped = spellings.mapNotNull { shape(it) }.filter { s -> s !in defaults && s.all { it in tokens } }
         val counts = shaped.groupingBy { it }.eachCount()
         val repeated = counts.filter { it.value >= 2 }.keys.toList()
         val once = counts.filter { it.value == 1 }.keys.toList()
-        val before = takes.count { word.firstKeyword(keywords(listOf(DEFAULT), STEPS.first()), it) != null }
-        var chosen = keywords(listOf(DEFAULT), STEPS.first())
+        var chosen = keywords(defaults, STEPS.first())
+        val before = takes.count { word.firstKeyword(chosen, it) != null }
         var caught = before
         tries@ for (learned in listOf(repeated, repeated + once)) {
-            val all = (listOf(DEFAULT) + learned).take(MAX_SPELLINGS + 1)
+            val all = defaults + learned.take(MAX_SPELLINGS)
             for (step in STEPS) {
                 val lines = keywords(all, step)
                 val n = takes.count { word.firstKeyword(lines, it) != null }
@@ -222,9 +225,6 @@ internal class VoiceTeacher(
         // Shorter ones ("hey be", "a bit") went off in everyday talk in the broad test (28.09).
         private const val MIN_PIECES = 5
 
-        /** The phrase as written in keywords.txt. */
-        val DEFAULT = listOf("▁HE", "Y", "▁BU", "D", "D", "Y")
-
         /** Boost and threshold, strictest first; keywords.txt uses the first. Looser than the last wasn't tried. */
         private val STEPS = listOf(2.0f to 0.15f, 2.5f to 0.12f, 3.0f to 0.10f)
 
@@ -239,16 +239,16 @@ internal class VoiceTeacher(
 
         /**
          * What's worth listening for in one take's spelling: two or three words (one alone would
-         * fire on too much) of at least [MIN_PIECES] pieces, not the default; when the sentence ran
-         * on without a pause, its first two words. Null if nothing is. The first piece starts a
-         * word even without the mark: the model sometimes hears it that way.
+         * fire on too much) of at least [MIN_PIECES] pieces; when the sentence ran on without a
+         * pause, its first two words. Null if nothing is. The first piece starts a word even
+         * without the mark: the model sometimes hears it that way.
          */
         fun shape(spelling: List<String>): List<String>? {
             if (spelling.isEmpty()) return null
             val starts = spelling.indices.filter { it == 0 || spelling[it].startsWith("▁") }
             val s = if (starts.size > 3) spelling.take(starts[2]) else spelling
             val words = s.indices.count { it == 0 || s[it].startsWith("▁") }
-            return s.takeIf { words in 2..3 && it.size in MIN_PIECES..10 && it != DEFAULT }
+            return s.takeIf { words in 2..3 && it.size in MIN_PIECES..10 }
         }
 
         /** keywords.txt lines for [spellings] at a boost and threshold, "/" between them. */
