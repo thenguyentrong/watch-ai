@@ -113,9 +113,11 @@ internal class WakeListener(
             paused = true
             window?.also { it.cancel() }
         }
-        scope.launch(NonCancellable) {
-            last?.join()
-            runCatching { word.await().release() }
+        scope.launch {
+            withContext(NonCancellable) {
+                last?.join()
+                runCatching { word.await().release() }
+            }
             scope.cancel()
         }
     }

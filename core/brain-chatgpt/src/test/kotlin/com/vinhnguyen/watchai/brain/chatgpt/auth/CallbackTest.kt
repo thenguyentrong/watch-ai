@@ -6,6 +6,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Test
+import java.net.ConnectException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -108,8 +109,10 @@ class CallbackTest {
         assertThat(good).startsWith("HTTP/1.1 200")
         assertThat(good).doesNotContain("SYNTHETIC_CODE")
         assertThat(result.await()).isEqualTo(CallbackResult.Code("SYNTHETIC_CODE"))
-        // One-shot: the port is released straight away.
-        ServerSocket(p, 1, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))).close()
+        // One-shot: nothing listens on the port any more. (Binding it again isn't the test: Linux keeps
+        // a just-closed connection's port for a while, CI 28.09.)
+        val refused = runCatching { Socket(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), p).close() }.exceptionOrNull()
+        assertThat(refused).isInstanceOf(ConnectException::class.java)
     }
 
     @Test
