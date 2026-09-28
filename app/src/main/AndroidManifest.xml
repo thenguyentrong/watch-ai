@@ -9,6 +9,13 @@
     <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
     <!-- Phone actions: calendar events and reminders (asked for in the Voice tab), timers and alarms in the clock app. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Texting and calling people the user names, only after they say yes (not on devices without a SIM). -->
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Find my phone vibrates too. Do Not Disturb, silent mode and "appear on top" (the phone's clock
@@ -39,6 +46,11 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <!-- "Open Spotify": the apps on the phone's home screen. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
     </queries>
 
@@ -83,6 +95,17 @@
                     android:host="*"
                     android:pathPrefix="/watchai/voice"
                     android:scheme="wear" />
+            </intent-filter>
+        </service>
+
+        <!-- Messages the user got, to read out and answer; only once they turn on notification access. -->
+        <service
+            android:name=".actions.BuddyNotificationListener"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
 

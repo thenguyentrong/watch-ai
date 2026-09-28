@@ -1,11 +1,16 @@
 package com.vinhnguyen.watchai.ui
 
+import android.content.pm.PackageManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vinhnguyen.watchai.AppGraph
 import com.vinhnguyen.watchai.PhoneTalkService
+import com.vinhnguyen.watchai.actions.ConversationActions
+import com.vinhnguyen.watchai.actions.MessageInbox
 import com.vinhnguyen.watchai.actions.NoteStore
+import com.vinhnguyen.watchai.actions.ReachActions
 import com.vinhnguyen.watchai.brain.Preloaded
+import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.voice.ChatGptRealtimeSession
 import com.vinhnguyen.watchai.voice.GemmaAudioProbe
@@ -77,6 +82,12 @@ class VoiceLabViewModel(
     val clockFromPocket: StateFlow<Boolean> = _clockFromPocket.asStateFlow()
     private val _doNotDisturbAllowed = MutableStateFlow(graph.controls.doNotDisturbAllowed())
     val doNotDisturbAllowed: StateFlow<Boolean> = _doNotDisturbAllowed.asStateFlow()
+    private val _textsAndCallsAllowed = MutableStateFlow(textsAndCallsGranted())
+    val textsAndCallsAllowed: StateFlow<Boolean> = _textsAndCallsAllowed.asStateFlow()
+    private val _inboxAllowed = MutableStateFlow(MessageInbox.allowed(graph.appContext))
+    val inboxAllowed: StateFlow<Boolean> = _inboxAllowed.asStateFlow()
+
+    private fun textsAndCallsGranted() = ReachActions.PERMISSIONS.all { graph.appContext.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
     init {
         viewModelScope.launch { runCatching { graph.notes.list() } }
@@ -86,6 +97,8 @@ class VoiceLabViewModel(
         _calendarAllowed.value = graph.actions.calendarAllowed()
         _clockFromPocket.value = graph.phoneClock.worksFromPocket()
         _doNotDisturbAllowed.value = graph.controls.doNotDisturbAllowed()
+        _textsAndCallsAllowed.value = textsAndCallsGranted()
+        _inboxAllowed.value = MessageInbox.allowed(graph.appContext)
     }
 
     fun deleteNote(id: Long) {
@@ -164,9 +177,11 @@ class VoiceLabViewModel(
                         graph.session,
                         ChatGptHttp.authClient(),
                         graph.chatGpt,
-                        graph.tools,
+                        Toolboxes(listOf(graph.tools, ConversationActions({ (session as? ChatGptRealtimeSession)?.endSoon() }, graph.logger))),
                         graph.logger,
                         voice = _state.value.voice,
+                        onIdle = { stop() },
+                        onUserWords = graph.userTurns::heard,
                     )
 
                 Engine.ON_DEVICE -> OnDeviceVoiceSession(graph.appContext, graph.gemma, graph.logger, graph.tools)

@@ -4,12 +4,18 @@ import android.content.Context
 import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.vinhnguyen.watchai.actions.Contacts
+import com.vinhnguyen.watchai.actions.MessageInbox
 import com.vinhnguyen.watchai.actions.NoteStore
 import com.vinhnguyen.watchai.actions.PhoneActions
 import com.vinhnguyen.watchai.actions.PhoneClock
 import com.vinhnguyen.watchai.actions.PhoneControls
+import com.vinhnguyen.watchai.actions.PhoneShortcuts
+import com.vinhnguyen.watchai.actions.ReachActions
+import com.vinhnguyen.watchai.actions.UserTurns
 import com.vinhnguyen.watchai.brain.BrainRouter
 import com.vinhnguyen.watchai.brain.Toolbox
+import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptBrain
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptSettings
@@ -75,8 +81,16 @@ class AppGraph(
     val phoneClock = PhoneClock(appContext) { foreground.isForeground() }
     val actions = PhoneActions(appContext, notes, controls, phoneClock, logger = logger)
 
-    /** Everything the AI may use: the phone's actions. */
-    val tools: Toolbox = actions
+    /** Messages the user got, from notifications (with their OK); only in memory. */
+    val inbox = MessageInbox()
+    val contacts = Contacts(appContext)
+
+    /** When the user last said or typed something: a message or a call only goes out on their later yes. */
+    val userTurns = UserTurns()
+    val shortcuts = PhoneShortcuts(appContext, logger) { foreground.isForeground() }
+
+    /** Everything the AI may use in the app (chat and the phone's own voice): the phone's actions, messages and calls, shortcuts. */
+    val tools: Toolbox = Toolboxes(listOf(actions, ReachActions(appContext, contacts, inbox, userTurns, logger), shortcuts))
 
     /** This user's Buddy: from their ChatGPT account, or this install until they sign in. */
     suspend fun buddySeed(): Long = Genes.seedFor(runCatching { session.bearer().accountId }.getOrNull() ?: settings.installId)

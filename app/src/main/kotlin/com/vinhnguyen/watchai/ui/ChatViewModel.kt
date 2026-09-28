@@ -53,6 +53,8 @@ class ChatViewModel(
     fun send(text: String) {
         val prompt = text.trim()
         if (prompt.isEmpty() || _state.value.busy) return
+        // A message or a call waiting for a yes goes out only on the user's own later turn.
+        graph.userTurns.heard()
         val history =
             _state.value.messages
                 .filter { it.error == null && !it.streaming && it.text.isNotEmpty() }

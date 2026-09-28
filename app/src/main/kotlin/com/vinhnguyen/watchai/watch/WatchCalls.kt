@@ -6,7 +6,9 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import com.google.android.gms.wearable.ChannelClient
 import com.vinhnguyen.watchai.AppGraph
+import com.vinhnguyen.watchai.actions.ConversationActions
 import com.vinhnguyen.watchai.actions.PhoneActions
+import com.vinhnguyen.watchai.actions.ReachActions
 import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.buddy.Mood
@@ -97,6 +99,10 @@ class WatchCalls(
                     listOf(
                         // Timers and alarms go to the watch unless the user asks for the phone: it's on the wrist, and on screen.
                         PhoneActions(graph.appContext, graph.notes, graph.controls, graph.phoneClock, WatchOnCall(watch), graph.logger),
+                        // A call started from here takes over the phone's audio: Buddy makes way.
+                        ReachActions(graph.appContext, graph.contacts, graph.inbox, graph.userTurns, graph.logger, onCalling = { session?.endSoon() }),
+                        graph.shortcuts,
+                        ConversationActions({ session?.endSoon() }, graph.logger),
                     ),
                 ) { name, result -> afterTool(watch, name, result) }
             val s =
@@ -111,6 +117,7 @@ class WatchCalls(
                     external = watch,
                     idleHangUpMs = IDLE_HANG_UP_MS,
                     onIdle = { graph.scope.launch { hangUp() } },
+                    onUserWords = graph.userTurns::heard,
                 )
             session = s
             audio = watch
@@ -136,7 +143,8 @@ class WatchCalls(
         name: String,
         result: String,
     ) {
-        if (name in QUIET_TOOLS) return
+        // Reading things shows nothing, and neither does something only proposed (it waits for the user's yes).
+        if (name in QUIET_TOOLS || result.startsWith("not done yet")) return
         val reaction =
             when {
                 result.startsWith("error") -> Reaction(Mood.OOPS, 0.7f)
@@ -266,6 +274,6 @@ class WatchCalls(
         /** Like a smart speaker: back to sleep after 10 s with nobody talking. */
         const val IDLE_HANG_UP_MS = 10_000L
         const val TURN_PREFIX = 12
-        val QUIET_TOOLS = setOf(PhoneActions.LIST_NOTES, PhoneActions.LIST_EVENTS, PhoneActions.DEVICE_STATUS)
+        val QUIET_TOOLS = setOf(PhoneActions.LIST_NOTES, PhoneActions.LIST_EVENTS, PhoneActions.DEVICE_STATUS, ReachActions.READ_MESSAGES, ConversationActions.END)
     }
 }

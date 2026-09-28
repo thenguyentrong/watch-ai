@@ -98,8 +98,11 @@ class ChatGptRealtimeSession(
     private val external: ExternalAudio? = null,
     /** Hang up after this long without words from the user, an answer or a look-up (like a smart speaker); null = never. */
     private val idleHangUpMs: Long? = null,
+    /** Hangs up: after [idleHangUpMs] of quiet, or once the goodbye after [endSoon] has played. */
     private val onIdle: () -> Unit = {},
     private val instructions: String = VOICE_INSTRUCTIONS,
+    /** The user said something (as OpenAI hears them): for telling their yes from the assistant's own words. */
+    private val onUserWords: () -> Unit = {},
 ) : VoiceSession {
     override val name: String = "ChatGPT voice (GPT-Live)"
 
@@ -147,6 +150,17 @@ class ChatGptRealtimeSession(
 
     @Volatile private var heardUser = false
     private val seenTypes = mutableSetOf<String>()
+
+    /** When the user asked to end the conversation ([endSoon]); the goodbye plays first. */
+    @Volatile private var endAskedAt: Long? = null
+
+    // RTC thread only: for how many polls the voice has been quiet since.
+    private var quietPolls = 0
+
+    /** The user is done ("bye", "that's all"): hang up once the goodbye has been said, like a smart speaker. */
+    fun endSoon() {
+        if (endAskedAt == null) endAskedAt = SystemClock.elapsedRealtime()
+    }
 
     override suspend fun start() {
         lifecycle.withLock {
@@ -405,6 +419,16 @@ class ChatGptRealtimeSession(
                 if (wantCallAudio) audio.enter() else audio.exit()
             }
             val clock = start + now
+            endAskedAt?.let { askedAt ->
+                // The voice has usually said goodbye by the time the end comes through (28.09, 3 s
+                // after it handed it over): hang up as soon as it's quiet, not after the answer.
+                quietPolls = if (timer.assistantSpeaking) 0 else quietPolls + 1
+                if (quietPolls * POLL_MS >= GOODBYE_QUIET_MS || SystemClock.elapsedRealtime() - askedAt >= GOODBYE_MAX_MS) {
+                    endAskedAt = null
+                    note("ended by the user")
+                    onIdle()
+                }
+            }
             if (timer.assistantSpeaking || consultJob?.isActive == true) lastActivityAt = clock
             // Before the first words, more time: the start can be slow (a sleeping phone took 5.4 s to
             // connect, 28.09) and people wait for the chime.
@@ -530,6 +554,7 @@ class ChatGptRealtimeSession(
     private fun onUserText(event: QuicksilverWire.Event.UserText) {
         lastActivityAt = SystemClock.elapsedRealtime()
         heardUser = true
+        onUserWords()
         if (event.final) {
             userTurnOpen = false
             remember(ChatTurn.Role.USER, event.text)
@@ -648,6 +673,8 @@ class ChatGptRealtimeSession(
         private const val POLL_MS = 50L
         private const val LISTEN_LOG_MS = 2_000L
         private const val FIRST_WORDS_MS = 20_000L
+        private const val GOODBYE_QUIET_MS = 800L
+        private const val GOODBYE_MAX_MS = 10_000L
         private const val MAX_TRANSCRIPT = 16
         private const val CONSULT_HISTORY = 6
         val VOICES = listOf("cove", "arbor", "breeze", "ember", "juniper", "maple", "sol", "spruce", "vale")
@@ -670,10 +697,16 @@ class ChatGptRealtimeSession(
                 "Answer in the language the user speaks. " +
                 "When a question needs facts you are not sure of, current information, or the exact time, or when the user wants " +
                 "something done on their phone or watch (a note, a calendar event, a reminder, a timer or an alarm, music or volume, " +
-                "the ringer or Do Not Disturb, ringing the phone to find it, battery levels, or reading their notes or calendar), " +
+                "the ringer or Do Not Disturb, ringing the phone to find it, battery levels, reading their notes or calendar, " +
+                "texting or calling someone, reading or answering the messages they got, opening an app, directions to a place, " +
+                "or the flashlight), " +
                 "or when they tell you their job, sport or hobby or ask you to dress up or change clothes (you are Buddy, the little " +
                 "mascot on their watch, and the client can dress you), " +
                 "delegate it to the client and wait for the result, then say the answer in your own words. Never claim something was done " +
-                "unless the result says so. If a request misses something it needs, like how long a timer should run, ask for that first."
+                "unless the result says so. If a request misses something it needs, like how long a timer should run, ask for that first. " +
+                "Before a message is sent or a call is made, the result gives you what to read back: read it back and ask; only when the " +
+                "user answers, delegate their yes or no. " +
+                "When the user says goodbye or that they're done (bye, that's all, stop listening), delegate ending the conversation, " +
+                "then say goodbye in two or three words."
     }
 }
