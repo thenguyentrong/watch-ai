@@ -219,6 +219,9 @@ internal class VoiceTeacher(
         private const val MIN_LOUD_CHUNKS = 3
         private const val MAX_SPELLINGS = 5
 
+        // Shorter ones ("hey be", "a bit") went off in everyday talk in the broad test (28.09).
+        private const val MIN_PIECES = 5
+
         /** The phrase as written in keywords.txt. */
         val DEFAULT = listOf("▁HE", "Y", "▁BU", "D", "D", "Y")
 
@@ -236,20 +239,16 @@ internal class VoiceTeacher(
 
         /**
          * What's worth listening for in one take's spelling: two or three words (one alone would
-         * fire on too much), not the default; when the sentence ran on without a pause, its first
-         * two words. Null if nothing is.
+         * fire on too much) of at least [MIN_PIECES] pieces, not the default; when the sentence ran
+         * on without a pause, its first two words. Null if nothing is. The first piece starts a
+         * word even without the mark: the model sometimes hears it that way.
          */
         fun shape(spelling: List<String>): List<String>? {
-            if (spelling.isEmpty() || !spelling.first().startsWith("▁")) return null
-            val s = if (spelling.count { it.startsWith("▁") } > 3) spelling.take(spelling.indexOfNth(3)) else spelling
-            return s.takeIf { it.count { t -> t.startsWith("▁") } in 2..3 && it.size in 3..10 && it != DEFAULT }
-        }
-
-        /** Where the [n]th word starts (counting from 1), or the size if there are fewer words. */
-        private fun List<String>.indexOfNth(n: Int): Int {
-            var seen = 0
-            forEachIndexed { i, t -> if (t.startsWith("▁") && ++seen == n) return i }
-            return size
+            if (spelling.isEmpty()) return null
+            val starts = spelling.indices.filter { it == 0 || spelling[it].startsWith("▁") }
+            val s = if (starts.size > 3) spelling.take(starts[2]) else spelling
+            val words = s.indices.count { it == 0 || s[it].startsWith("▁") }
+            return s.takeIf { words in 2..3 && it.size in MIN_PIECES..10 && it != DEFAULT }
         }
 
         /** keywords.txt lines for [spellings] at a boost and threshold, "/" between them. */
