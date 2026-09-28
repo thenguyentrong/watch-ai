@@ -454,10 +454,12 @@ markdown-it-py==4.2.0 \
     --hash=sha256:04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49 \
     --hash=sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a
     # via rich
-mcp==1.23.3 \
-    --hash=sha256:32768af4b46a1b4f7df34e2bfdf5c6011e7b63d7f1b0e321d0fdef4cd6082031 \
-    --hash=sha256:b3b0da2cc949950ce1259c7bfc1b081905a51916fcd7c8182125b85e70825201
-    # via semgrep
+mcp==1.30.0 \
+    --hash=sha256:445414625fce5c295faa505bb11bacece661ab6f4028d57c935db57820b7a3e4 \
+    --hash=sha256:666edb5009503e1047c9d60346a756f94b261f05cc2625f23d41c728ffc484d0
+    # via
+    #   --override .github/requirements-ci-overrides.txt
+    #   semgrep
 mdurl==0.1.2 \
     --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8 \
     --hash=sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba
@@ -465,7 +467,7 @@ mdurl==0.1.2 \
 mobsfscan==1.0.1 \
     --hash=sha256:4d755d4b7910fdbb119f1844433a1fbe1d8c2d64e02eee4b648331c51f260bd3 \
     --hash=sha256:f390df288e488126fbbdcf24b1635baea5e81b7fca02e0fe72358702c655ee88
-    # via -r requirements-ci.in
+    # via -r .github/requirements-ci.in
 opentelemetry-api==1.37.0 \
     --hash=sha256:540735b120355bd5112738ea53621f8d5edb35ebcd6fe21ada3ab1c61d1cd9a7 \
     --hash=sha256:accf2024d3e89faec14302213bc39550ec0f4095d1cf5ca688e1bfb1c8612f47

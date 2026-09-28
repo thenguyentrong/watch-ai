@@ -1,0 +1,7 @@
+---
+- ignore-rules:
+    # singleTask on the watch activity (opening it again talks again); its taskAffinity is empty,
+    # the fix the rule asks for. See docs/security/exceptions.md.
+    - android_task_hijacking1
+    # StrandHogg 2.0 (CVE-2020-0096) is fixed in Android 10; minSdk is 31 (phone) and 33 (watch).
+    - android_task_hijacking2

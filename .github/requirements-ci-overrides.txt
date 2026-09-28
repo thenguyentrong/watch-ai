@@ -1,0 +1,4 @@
+# mobsfscan 1.0.1 pins semgrep 1.172.0, which pins mcp 1.23.3 (GHSA-hvrp-rf83-w775, GHSA-jpw9-pfvf-9f58,
+# GHSA-vj7q-gjh5-988w). mobsfscan only scans with semgrep and never runs its MCP server, so the fixed
+# 1.x is forced here. Drop this once mobsfscan moves to a semgrep with a fixed mcp.
+mcp>=1.28.1,<2

@@ -208,12 +208,12 @@ internal class WakeListener(
 /** Whether the user switched "Hey Buddy" on; kept across restarts so opening the app turns it back on. */
 internal object WakeSetting {
     private const val PREFS = "wear"
-    private const val KEY = "hey_buddy"
+    private const val SWITCH = "hey_buddy"
 
-    fun isOn(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY, false)
+    fun isOn(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(SWITCH, false)
 
     fun set(
         context: Context,
         on: Boolean,
-    ) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean(KEY, on) }
+    ) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean(SWITCH, on) }
 }

@@ -11,3 +11,6 @@ Every place where we knowingly don't meet a control, with a reason and an end da
 | 2026-09-27 | Dev phone (S23 Ultra): Samsung Auto Blocker off, wireless debugging on | Needed to install and test builds | Turn back on after M1 testing |
 | 2026-09-27 | Dev machine: plaintext `.env` copies in `C:\dev\_env-backup\20260708-082056\` (other projects) | Found during setup; not ours to change without asking | Move to a password manager / encrypted archive |
 | 2026-09-27 | Codex OAuth client of OpenAI used by a third-party app | Only subscription route OpenAI allows today | SIWC token sharing before public launch |
+| 2026-09-28 | mobsfscan `android_task_hijacking1` ignored | The watch activity is singleTask so that opening it again starts talking; its `taskAffinity` is empty, which is the mitigation | Review if the activity's launch mode changes |
+| 2026-09-28 | mobsfscan `android_task_hijacking2` ignored | StrandHogg 2.0 (CVE-2020-0096) is fixed in Android 10; minSdk is 31 on the phone and 33 on the watch | Review if minSdk drops below 29 |
+| 2026-09-28 | CI tool pin: `mcp` forced to 1.30 over semgrep's own pin (1.23.3, three advisories) | mobsfscan 1.0.1 pins semgrep 1.172.0, which pins the vulnerable mcp; the scan never runs an MCP server | Drop the override when mobsfscan moves on |
