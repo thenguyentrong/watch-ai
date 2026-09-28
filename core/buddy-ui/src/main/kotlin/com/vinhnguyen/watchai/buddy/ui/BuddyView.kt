@@ -28,11 +28,10 @@ import kotlinx.coroutines.delay
  * [level]; the view notes when each change happened on its clock. [paper] is the colour behind
  * the view: the eyes and mouth show it.
  *
- * [fps] caps how often it redraws, [busyFps] while a reaction plays (rings, bursts, the comet):
- * 60 on a phone; a watch passes less, since every frame costs its small cores whatever is drawn
- * (release build on the Watch5, 27.09: about 21% CPU at 10 fps, 53% at 30, the same for a plain
- * circle). [frozenAt] stops the clock at that many seconds into the act and reaction, for
- * screenshots and tests. With the system's animations off Buddy holds still.
+ * [fps] caps how often it redraws, [busyFps] while a reaction plays (rings, bursts, the comet).
+ * For the phone and for frozen screenshots: on the watch [BuddySurface] draws the same Buddy for
+ * about half the CPU. [frozenAt] stops the clock at that many seconds into the act and reaction,
+ * for screenshots and tests. With the system's animations off Buddy holds still.
  */
 @Composable
 fun BuddyView(

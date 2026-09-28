@@ -49,7 +49,7 @@ import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.SwitchButton
 import androidx.wear.compose.material3.Text
 import com.vinhnguyen.watchai.buddy.Act
-import com.vinhnguyen.watchai.buddy.ui.BuddyView
+import com.vinhnguyen.watchai.buddy.ui.BuddySurface
 import com.vinhnguyen.watchai.wear.PhoneVoiceLink.Phase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -184,17 +184,18 @@ private fun WatchScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            BuddyView(
+            val shownAct = act(state.phase, wakeOn && wakeListening)
+            BuddySurface(
                 genes = genes,
-                act = act(state.phase, wakeOn && wakeListening),
+                act = shownAct,
                 reaction = state.reaction,
                 reactionId = state.reactionId,
                 level = if (ambient) 0f else state.level,
                 paper = Color.Black,
                 ambient = ambient,
-                // Every frame costs the watch's small cores: 10 a second at rest, 20 in a conversation, 30 while a reaction plays.
-                fps = if (active) 20 else 10,
-                busyFps = 30,
+                // Every frame costs the watch's small cores: 10 a second, 15 while Buddy talks (the mouth), 24 while a reaction plays.
+                fps = if (shownAct == Act.SPEAK) 15 else 10,
+                busyFps = 24,
                 modifier =
                 Modifier
                     .size((screen.screenWidthDp * 0.74f).dp)
