@@ -157,6 +157,11 @@ class ChatGptRealtimeSession(
     // RTC thread only: for how many polls the voice has been quiet since.
     private var quietPolls = 0
 
+    /** Tells the voice what happened on screen (a yes given with a button); it may mention it. */
+    fun tell(text: String) {
+        scope?.launch { send(QuicksilverWire.noteFrames(text)) }
+    }
+
     /** The user is done ("bye", "that's all"): hang up once the goodbye has been said, like a smart speaker. */
     fun endSoon() {
         if (endAskedAt == null) endAskedAt = SystemClock.elapsedRealtime()

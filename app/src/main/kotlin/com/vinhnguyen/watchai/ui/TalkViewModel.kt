@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vinhnguyen.watchai.AppGraph
 import com.vinhnguyen.watchai.PhoneTalkService
+import com.vinhnguyen.watchai.actions.BuddyCard
 import com.vinhnguyen.watchai.actions.ConversationActions
+import com.vinhnguyen.watchai.actions.Pending
 import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.brain.chatgpt.auth.AuthState
@@ -47,6 +49,13 @@ class TalkViewModel(
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
+
+    private val _island = MutableStateFlow<Island>(Island.Hidden)
+
+    /** The pop-up at the top: the conversation, or a card for what Buddy just did. */
+    val island: StateFlow<Island> = _island.asStateFlow()
+    private var card: BuddyCard? = null
+    private var cardJob: Job? = null
     private val _level = MutableStateFlow(0f)
     val level: StateFlow<Float> = _level.asStateFlow()
     val auth: StateFlow<AuthState> = graph.session.state
@@ -61,6 +70,10 @@ class TalkViewModel(
 
     init {
         viewModelScope.launch { runCatching { graph.session.isSignedIn() } }
+        viewModelScope.launch { graph.cards.cards.collect { showCard(it) } }
+        // A yes or no given with the pop-up's buttons: this phone's conversation hears about it.
+        viewModelScope.launch { graph.cards.decidedOnScreen.collect { session?.tell("The user answered on the phone's screen: $it") } }
+        viewModelScope.launch { _state.collect { refreshIsland() } }
         // The watch called: it's shown here, and this phone's own conversation makes way.
         viewModelScope.launch {
             graph.watchCalls.call.collect { call ->
@@ -130,6 +143,43 @@ class TalkViewModel(
 
     fun end() {
         viewModelScope.launch { lock.withLock { endLocked() } }
+    }
+
+    /** The pop-up's Send, Call or Cancel: the tap is the user's answer. */
+    fun decide(yes: Boolean) {
+        graph.scope.launch { graph.decideOnScreen(yes) }
+    }
+
+    fun dismissCard() {
+        cardJob?.cancel()
+        card = null
+        refreshIsland()
+    }
+
+    private fun showCard(next: BuddyCard) {
+        card = next
+        cardJob?.cancel()
+        // A text or call waits for its answer as long as the yes may come; the rest go after a few seconds.
+        val keep =
+            when (next) {
+                is BuddyCard.Ask -> Pending.TTL_MS
+                is BuddyCard.Place, is BuddyCard.Messages -> LONG_CARD_MS
+                else -> CARD_MS
+            }
+        cardJob =
+            viewModelScope.launch {
+                delay(keep)
+                card = null
+                refreshIsland()
+            }
+        refreshIsland()
+    }
+
+    private fun refreshIsland() {
+        val s = _state.value
+        _island.value =
+            card?.let { Island.Showing(it) }
+                ?: if (s.phase != VoicePhase.IDLE && s.phase != VoicePhase.ERROR) Island.Live(s.phase, s.onWatch) else Island.Hidden
     }
 
     private suspend fun endLocked() {
@@ -204,5 +254,7 @@ class TalkViewModel(
         const val IDLE_HANG_UP_MS = 10_000L
         const val BACKGROUND_GRACE_MS = 30_000L
         const val TURN_PREFIX = 12
+        const val CARD_MS = 6_000L
+        const val LONG_CARD_MS = 12_000L
     }
 }

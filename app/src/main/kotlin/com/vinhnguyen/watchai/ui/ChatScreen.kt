@@ -1,26 +1,32 @@
 package com.vinhnguyen.watchai.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -34,72 +40,75 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.vinhnguyen.watchai.R
 import com.vinhnguyen.watchai.brain.ChatTurn
 import com.vinhnguyen.watchai.brain.RoutePreference
 
+/**
+ * Typing with Buddy, like ChatGPT: the user's words in soft bubbles on the right, Buddy's answers
+ * as plain text with who answered under them, and a glass bar for typing that floats over the chat.
+ * The chat runs under the page's bar; [top] is the room it takes.
+ */
 @Composable
-fun ChatScreen(vm: ChatViewModel) {
+fun ChatScreen(
+    vm: ChatViewModel,
+    top: Dp,
+) {
+    val p = LocalPalette.current
     val state by vm.state.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
     var flagging by remember { mutableStateOf<Long?>(null) }
     val listState = rememberLazyListState()
+    val backdrop = rememberLayerBackdrop()
+    val askCloud = !state.cloudAllowed && state.preference != RoutePreference.ON_DEVICE
     LaunchedEffect(state.messages.size, state.messages.lastOrNull()?.text?.length) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex + if (askCloud) 1 else 0)
+    }
+    val send = { text: String ->
+        vm.send(text)
+        input = ""
     }
 
-    Column(Modifier.fillMaxSize().imePadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(RoutePreference.AUTO to "Auto", RoutePreference.ON_DEVICE to "On this phone", RoutePreference.CHATGPT to "ChatGPT")
-                .forEach { (pref, label) ->
-                    FilterChip(selected = state.preference == pref, onClick = { vm.setPreference(pref) }, label = { Text(label) })
-                }
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Allow ChatGPT answers", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = state.cloudAllowed, onCheckedChange = vm::setCloudAllowed)
-        }
+    Box(Modifier.fillMaxSize().imePadding()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+            modifier = Modifier.fillMaxSize().layerBackdrop(backdrop).background(p.background),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = top + 8.dp, bottom = 104.dp),
         ) {
-            if (state.messages.isEmpty()) {
-                item {
-                    Text(
-                        "Ask something short, like you would on a watch.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            if (askCloud) {
+                item(key = "cloud") {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(p.surface).padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Let ChatGPT answer when this phone can't", style = MaterialTheme.typography.bodyMedium, color = p.textSecondary, modifier = Modifier.weight(1f))
+                        Switch(checked = false, onCheckedChange = vm::setCloudAllowed)
+                    }
                 }
             }
+            if (state.messages.isEmpty()) item(key = "empty") { Suggestions(onPick = send) }
             items(state.messages, key = { it.id }) { message -> MessageItem(message, onFlag = { flagging = message.id }) }
         }
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Ask…") },
-                singleLine = false,
-                maxLines = 4,
-            )
-            if (state.busy) {
-                OutlinedButton(onClick = vm::stop, modifier = Modifier.padding(start = 8.dp)) { Text("Stop") }
-            } else {
-                Button(
-                    onClick = {
-                        vm.send(input)
-                        input = ""
-                    },
-                    enabled = input.isNotBlank(),
-                    modifier = Modifier.padding(start = 8.dp),
-                ) { Text("Send") }
-            }
-        }
-        TextButton(onClick = vm::newConversation, modifier = Modifier.align(Alignment.End).padding(end = 8.dp)) { Text("New chat") }
+        Composer(
+            input = input,
+            busy = state.busy,
+            backdrop = backdrop,
+            onInput = { input = it },
+            onSend = { if (input.isNotBlank()) send(input) },
+            onStop = vm::stop,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 12.dp),
+        )
     }
 
     flagging?.let { id ->
@@ -110,39 +119,179 @@ fun ChatScreen(vm: ChatViewModel) {
     }
 }
 
+/** Which AI answers, in the chat's bar, like ChatGPT's model picker. */
+@Composable
+fun ChatRoutePicker(vm: ChatViewModel) {
+    val p = LocalPalette.current
+    val state by vm.state.collectAsStateWithLifecycle()
+    var open by remember { mutableStateOf(false) }
+    val current = ROUTES.first { it.preference == state.preference }
+    Box {
+        Row(
+            Modifier
+                .clip(CircleShape)
+                .clickable(role = Role.DropdownList, onClickLabel = "Choose who answers") { open = true }
+                .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(current.title, style = MaterialTheme.typography.titleSmall, color = p.text, maxLines = 1)
+            Icon(painterResource(R.drawable.sym_expand_more), contentDescription = null, tint = p.textSecondary, modifier = Modifier.padding(start = 2.dp).size(20.dp))
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = p.surface,
+            shadowElevation = 12.dp,
+        ) {
+            ROUTES.forEach { route ->
+                DropdownMenuItem(
+                    text = {
+                        Column(Modifier.padding(vertical = 6.dp)) {
+                            Text(route.title, style = MaterialTheme.typography.titleMedium, color = p.text)
+                            Text(route.detail, style = MaterialTheme.typography.bodySmall, color = p.textSecondary)
+                        }
+                    },
+                    trailingIcon = {
+                        if (route.preference == state.preference) Icon(painterResource(R.drawable.sym_check), contentDescription = "Chosen", tint = p.text, modifier = Modifier.size(20.dp))
+                    },
+                    onClick = {
+                        vm.setPreference(route.preference)
+                        open = false
+                    },
+                    modifier = Modifier.widthIn(min = 260.dp),
+                )
+            }
+        }
+    }
+}
+
+private class ChatRoute(
+    val preference: RoutePreference,
+    val title: String,
+    val detail: String,
+)
+
+private val ROUTES =
+    listOf(
+        ChatRoute(RoutePreference.AUTO, "Auto", "On this phone when it can, else ChatGPT"),
+        ChatRoute(RoutePreference.ON_DEVICE, "On this phone", "Works offline, nothing leaves the phone"),
+        ChatRoute(RoutePreference.CHATGPT, "ChatGPT", "On your ChatGPT plan"),
+    )
+
+@Composable
+private fun LazyItemScope.Suggestions(onPick: (String) -> Unit) {
+    val p = LocalPalette.current
+    Column(Modifier.fillParentMaxHeight(0.78f).fillMaxWidth(), verticalArrangement = Arrangement.Center) {
+        Text("What can I do for you?", style = MaterialTheme.typography.headlineSmall, color = p.text)
+        Text(
+            "Ask anything, or tell Buddy to do something on your phone.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = p.textSecondary,
+            modifier = Modifier.padding(top = 6.dp, bottom = 24.dp),
+        )
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(p.surface)) {
+            SUGGESTIONS.forEachIndexed { i, (icon, text) ->
+                Item(text, painter = painterResource(icon), last = i == SUGGESTIONS.lastIndex, onClick = { onPick(text) })
+            }
+        }
+    }
+}
+
+private val SUGGESTIONS =
+    listOf(
+        R.drawable.sym_timer to "Set a timer for ten minutes",
+        R.drawable.sym_event to "What's on my calendar today?",
+        R.drawable.sym_sticky_note_2 to "Add milk to my notes",
+        R.drawable.sym_chat_bubble to "Any new messages?",
+    )
+
+@Composable
+private fun Composer(
+    input: String,
+    busy: Boolean,
+    backdrop: Backdrop,
+    onInput: (String) -> Unit,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val p = LocalPalette.current
+    Row(
+        modifier
+            .fillMaxWidth()
+            .glass(backdrop, p.surface.copy(alpha = 0.78f), corner = 28.dp)
+            .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f).padding(vertical = 10.dp)) {
+            if (input.isEmpty()) Text("Ask Buddy", style = MaterialTheme.typography.bodyLarge, color = p.textTertiary)
+            BasicTextField(
+                value = input,
+                onValueChange = onInput,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = p.text),
+                cursorBrush = SolidColor(p.text),
+                maxLines = 5,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        val ready = busy || input.isNotBlank()
+        Box(
+            Modifier
+                .padding(start = 8.dp)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(if (ready) p.text else p.surfaceHigh)
+                .clickable(role = Role.Button, onClickLabel = if (busy) "Stop" else "Send", onClick = if (busy) onStop else onSend),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(if (busy) R.drawable.sym_stop else R.drawable.sym_arrow_upward),
+                contentDescription = if (busy) "Stop" else "Send",
+                tint = if (ready) p.background else p.textTertiary,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun MessageItem(
     message: ChatViewModel.Message,
     onFlag: () -> Unit,
 ) {
+    val p = LocalPalette.current
     val mine = message.role == ChatTurn.Role.USER
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
-        Card(
-            modifier = Modifier.widthIn(max = 320.dp),
-            colors =
-            CardDefaults.cardColors(
-                containerColor = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            ),
-        ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (message.text.isNotEmpty() || message.streaming) Text(message.text.ifEmpty { "…" })
-                message.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                if (!mine && !message.streaming) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        val stats = message.stats
-                        val label =
-                            buildString {
-                                append(message.brain?.let { "Answered by ${it.label}" } ?: "AI answer")
-                                if (stats != null) {
-                                    stats.firstTokenMillis?.let { append(" · first word $it ms") }
-                                    append(" · ${stats.totalMillis} ms")
-                                }
-                            }
-                        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (message.text.isNotEmpty()) {
-                            TextButton(onClick = onFlag, enabled = !message.flagged) { Text(if (message.flagged) "Flagged" else "Flag") }
-                        }
+    if (mine) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+            Text(
+                message.text,
+                style = MaterialTheme.typography.bodyLarge,
+                color = p.text,
+                modifier = Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(22.dp)).background(p.surfaceHigh).padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
+        return
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (message.text.isNotEmpty() || message.streaming) Text(message.text.ifEmpty { "…" }, style = MaterialTheme.typography.bodyLarge, color = p.text)
+        message.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = p.danger) }
+        if (!message.streaming) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val stats = message.stats
+                val label =
+                    buildString {
+                        append(message.brain?.let { "Answered by ${it.label}" } ?: "AI answer")
+                        if (stats != null) append(" · %.1f s".format(stats.totalMillis / 1000.0))
                     }
+                Text(label, style = MaterialTheme.typography.labelSmall, color = p.textTertiary, modifier = Modifier.weight(1f))
+                if (message.text.isNotEmpty()) {
+                    Text(
+                        if (message.flagged) "Flagged" else "Flag",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = p.textTertiary,
+                        modifier = Modifier.clip(CircleShape).clickable(enabled = !message.flagged, role = Role.Button, onClick = onFlag).padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
                 }
             }
         }

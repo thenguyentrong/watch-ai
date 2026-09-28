@@ -211,7 +211,7 @@ class PhoneControls(
         private const val RING_CHANNEL = "find_phone"
         private const val RING_NOTIFICATION = 8
         private const val NEEDS_DND_ACCESS =
-            "error: the user has to allow Buddy to change Do Not Disturb first, once, in the Buddy phone app (Voice tab)"
+            "error: the user has to allow Buddy to change Do Not Disturb first, once, in the Buddy phone app (in the menu, What Buddy can do)"
     }
 }
 

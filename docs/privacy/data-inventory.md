@@ -18,7 +18,7 @@
 | Contacts | Yes (names, numbers) | The phone's contacts (read only) | Android | Not copied | The chosen name and number type go to ChatGPT with the request; the number goes only to the carrier |
 | Pending message or call | Yes | Phone memory (`Pending`) | — | 2 min, or until the user says yes or no | No |
 | Texts and calls the user confirmed | Yes | The phone's SMS and call history | Android | The phone's history | To the other person through the carrier |
-| Places and app names | Yes (whatever the user asks) | Not stored | — | — | To Google Maps or the opened app, on the phone |
+| Places and app names | Yes (whatever the user asks) | Not stored (the pop-up's last 8 maps in memory) | — | Until the app closes | To Google Maps or the opened app, on the phone; for the pop-up's map, the place name to OpenStreetMap (Nominatim, then map tiles), with the phone's IP address |
 | Voice timings (debug builds) | No (timings and event types only) | App external files dir | — | Manual | Only via `adb pull` by the developer |
 | Settings (opt-ins, notice accepted) | No | SharedPreferences | Android file encryption | Until delete everything | No |
 | GPU-broken flag | No (device model string) | SharedPreferences | — | Until delete everything | No |

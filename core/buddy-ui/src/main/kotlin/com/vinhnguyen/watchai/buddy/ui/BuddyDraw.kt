@@ -29,7 +29,8 @@ import kotlin.math.sin
  * The back half of every orbit is drawn first and the body hides it. Eyes and mouth are
  * painted in [paper] (the same as cutting them out, on a plain background) as a rounded rect or
  * one curve under a transform: building outlines point by point cost 10 ms a frame on the Watch5.
- * Paths are kept in [paths] and reused.
+ * On a light background the face would show white; [eyes] paints it dark instead (the phone's light
+ * theme). Paths are kept in [paths] and reused.
  *
  * Body units: 1 is the radius of the ball at rest, drawn [scale] pixels, centred on [center].
  */
@@ -41,12 +42,13 @@ fun DrawScope.drawBuddy(
     paths: BuddyPaths,
     scale: Float = size.minDimension * BALL,
     center: Offset = this.center,
+    eyes: Color = paper,
 ) {
     val s = Space(center, scale)
     frame.arcs.forEach { drawArc(it, s, paths, front = false) }
     if (frame.dotsBehind) frame.dots.forEach { drawDot(it, s, paths, ink, paper) }
     drawPath(paths.body.apply { smoothLoop(frame.body, s) }, ink)
-    frame.features.forEach { drawFeature(it, s, paths, paper) }
+    frame.features.forEach { drawFeature(it, s, paths, eyes) }
     frame.badge?.let { drawCircle(paper, radius = (it.r + it.gap) * s.k, center = s.p(it.x, it.y)) }
     if (!frame.dotsBehind) frame.dots.forEach { drawDot(it, s, paths, ink, paper) }
     frame.badge?.let { drawBadge(it, s, paths, accent) }

@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.vinhnguyen.watchai.actions.CardHub
 import com.vinhnguyen.watchai.actions.Contacts
 import com.vinhnguyen.watchai.actions.MessageInbox
 import com.vinhnguyen.watchai.actions.NoteStore
+import com.vinhnguyen.watchai.actions.Pending
 import com.vinhnguyen.watchai.actions.PhoneActions
 import com.vinhnguyen.watchai.actions.PhoneClock
 import com.vinhnguyen.watchai.actions.PhoneControls
@@ -79,18 +81,35 @@ class AppGraph(
     val notes = NoteStore(notesVault)
     val controls = PhoneControls(appContext, scope)
     val phoneClock = PhoneClock(appContext) { foreground.isForeground() }
-    val actions = PhoneActions(appContext, notes, controls, phoneClock, logger = logger)
+
+    /** When the user last said or typed something: a message or a call only goes out on their later yes. */
+    val userTurns = UserTurns()
+
+    /** The one message or call waiting for a yes, by voice or with the phone's pop-up. */
+    val pending = Pending(userTurns)
+
+    /** What the phone's pop-up shows while Buddy works. */
+    val cards = CardHub()
+
+    val actions = PhoneActions(appContext, notes, controls, phoneClock, logger = logger, cards = cards)
 
     /** Messages the user got, from notifications (with their OK); only in memory. */
     val inbox = MessageInbox()
     val contacts = Contacts(appContext)
 
-    /** When the user last said or typed something: a message or a call only goes out on their later yes. */
-    val userTurns = UserTurns()
-    val shortcuts = PhoneShortcuts(appContext, logger) { foreground.isForeground() }
+    val shortcuts = PhoneShortcuts(appContext, logger, { foreground.isForeground() }, cards)
 
     /** Everything the AI may use in the app (chat and the phone's own voice): the phone's actions, messages and calls, shortcuts. */
-    val tools: Toolbox = Toolboxes(listOf(actions, ReachActions(appContext, contacts, inbox, userTurns, logger), shortcuts))
+    val tools: Toolbox = Toolboxes(listOf(actions, ReachActions(appContext, contacts, inbox, pending, logger, cards = cards), shortcuts))
+
+    /** The user tapped Send, Call or Cancel in the pop-up: that tap is their answer. */
+    suspend fun decideOnScreen(yes: Boolean): String {
+        userTurns.heard()
+        val result = pending.decide(yes)
+        cards.show(CardHub.decision(result))
+        cards.decidedOnScreen(result)
+        return result
+    }
 
     /** This user's Buddy: from their ChatGPT account, or this install until they sign in. */
     suspend fun buddySeed(): Long = Genes.seedFor(runCatching { session.bearer().accountId }.getOrNull() ?: settings.installId)
@@ -126,7 +145,7 @@ class AppSettings(
     val installId: String
         get() = prefs.getString("install_id", null) ?: UUID.randomUUID().toString().also { id -> prefs.edit { putString("install_id", id) } }
 
-    /** GPT-Live voice, chosen in the Voice tab; watch calls use it too. */
+    /** GPT-Live voice, chosen in Settings; watch calls use it too. */
     var voice: String
         get() = prefs.getString("voice", null) ?: "cove"
         set(value) = prefs.edit { putString("voice", value) }

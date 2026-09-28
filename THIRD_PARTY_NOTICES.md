@@ -1,6 +1,6 @@
 # Third-party notices
 
-What Buddy is built on, where it comes from and under which licence. Checked 27.09.2026.
+What Buddy is built on, where it comes from and under which licence. Checked 28.09.2026.
 
 ## Buddy's animation: bloub
 
@@ -55,6 +55,21 @@ The model was trained on GigaSpeech. GigaSpeech's audio is only licensed for non
 | Gemma 4 E2B (downloaded on first use, not in the APK) | https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm | Apache-2.0 (Google) |
 | LiteRT-LM 0.17.1 | https://github.com/google-ai-edge/LiteRT-LM | Apache-2.0 |
 | WebRTC for Android (io.github.webrtc-sdk:android) | https://github.com/webrtc-sdk/webrtc | BSD-3-Clause, plus WebRTC's patent grant |
+
+## The phone app's look
+
+| What | Source | Licence |
+| --- | --- | --- |
+| Inter 4.1 typeface (variable, `app/src/main/res/font/inter.ttf`) | https://github.com/rsms/inter | SIL Open Font License 1.1, Copyright (c) 2016 The Inter Project Authors; the licence ships in the app (`app/src/main/assets/licenses/inter-OFL.txt`) |
+| Backdrop 2.0.1 (glass: blur, vibrancy, refraction) | https://github.com/Kyant0/AndroidLiquidGlass | Apache-2.0 (Kyant) |
+| Shapes 1.2.1 (continuous rounded corners) | https://github.com/Kyant0/Shapes | Apache-2.0 (Kyant) |
+| Material Symbols, Rounded (`app/src/main/res/drawable/sym_*.xml`) | https://github.com/google/material-design-icons | Apache-2.0 (Google) |
+
+Liquid Glass is Apple's name for its material. Backdrop is an independent take on it for Android; no Apple code or artwork is used.
+
+## Maps
+
+The small map in the pop-up comes from OpenStreetMap: map data © OpenStreetMap contributors, under the Open Database License 1.0 (https://www.openstreetmap.org/copyright). Places are found with Nominatim and the map is drawn from tile.openstreetmap.org, within the OpenStreetMap Foundation's usage policies: the app names itself in every request, asks only when the user wants directions, and keeps the last few maps in memory. A wider release needs a tile provider with an agreement instead.
 
 ## Libraries
 

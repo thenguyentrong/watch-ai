@@ -5,77 +5,72 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.NavigationDrawerItemDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.vinhnguyen.watchai.AppGraph
 import com.vinhnguyen.watchai.BuildConfig
+import com.vinhnguyen.watchai.R
 import com.vinhnguyen.watchai.brain.chatgpt.auth.AuthState
 import com.vinhnguyen.watchai.buddy.Act
 import com.vinhnguyen.watchai.buddy.Genes
 import com.vinhnguyen.watchai.buddy.ui.BuddyView
-import kotlinx.coroutines.launch
+import com.vinhnguyen.watchai.buddy.ui.accentOf
 
 /** Everything behind the menu; the last two are in test builds only. */
 enum class Page(
     val title: String,
-    val icon: ImageVector,
     val forTesting: Boolean = false,
 ) {
-    CHAT("Chat", Icons.AutoMirrored.Filled.Send),
-    ABILITIES("What Buddy can do", Icons.Filled.Build),
-    AI("Your AI", Icons.Filled.AccountCircle),
-    SETTINGS("Settings", Icons.Filled.Settings),
-    VOICE_LAB("Voice lab", Icons.Filled.Call, forTesting = true),
-    BUDDIES("More Buddies", Icons.Filled.Face, forTesting = true),
+    CHAT("Chat"),
+    ABILITIES("What Buddy can do"),
+    AI("Your AI"),
+    SETTINGS("Settings"),
+    VOICE_LAB("Voice lab", forTesting = true),
+    BUDDIES("More Buddies", forTesting = true),
 }
 
 /** The screens the menu opens. */
@@ -88,8 +83,8 @@ class Pages(
 )
 
 /**
- * The phone app, as clean as the watch: Buddy alone on the home screen, and everything else behind
- * one menu (top left, like ChatGPT's). A page opens over the home and back returns to Buddy.
+ * The phone app, as calm as the watch: Buddy alone on the home screen, and everything else behind
+ * one menu, a glass panel that slides over it. A page opens over the home; back returns to Buddy.
  */
 @Composable
 fun BuddyApp(
@@ -98,38 +93,77 @@ fun BuddyApp(
     pages: Pages,
 ) {
     var page by rememberSaveable { mutableStateOf<Page?>(null) }
-    val drawer = rememberDrawerState(DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
+    var menu by rememberSaveable { mutableStateOf(false) }
+    val backdrop = rememberLayerBackdrop()
+    val pageBackdrop = rememberLayerBackdrop()
+    val seed by produceState<Long?>(null) { value = talk.buddySeed() }
+    val genes = remember(seed) { seed?.let { Genes.of(it) } }
+    val island by talk.island.collectAsStateWithLifecycle()
+    val level by talk.level.collectAsStateWithLifecycle()
+    val palette = LocalPalette.current
     val open = { p: Page ->
         page = p
+        menu = false
         if (p == Page.AI) pages.brains.refresh()
-        scope.launch { drawer.close() }
-        Unit
     }
-    BackHandler(page != null) { page = null }
-    BackHandler(page == null && drawer.isOpen) { scope.launch { drawer.close() } }
-    // Buddy's black stage wants light status bar icons whatever the theme; the open menu doesn't.
-    SystemBars(lightIcons = isSystemInDarkTheme() || (page == null && drawer.targetValue == DrawerValue.Closed))
+    BackHandler(menu) { menu = false }
+    BackHandler(!menu && page != null) { page = null }
+    SystemBars(lightIcons = isSystemInDarkTheme())
 
-    ModalNavigationDrawer(
-        drawerState = drawer,
-        gesturesEnabled = page == null,
-        drawerContent = { Menu(talk, onOpen = open) },
-    ) {
+    Box(Modifier.fillMaxSize()) {
         when (val p = page) {
-            null -> HomeScreen(talk, onMenu = { scope.launch { drawer.open() } }, onSignIn = { open(Page.AI) })
+            null -> HomeScreen(talk, genes, backdrop, onMenu = { menu = true }, onChat = { open(Page.CHAT) }, onSignIn = { open(Page.AI) })
 
-            else ->
-                PageScaffold(p.title, onBack = { page = null }) {
-                    when (p) {
-                        Page.CHAT -> ChatScreen(pages.chat)
-                        Page.ABILITIES -> AbilitiesScreen(pages.abilities)
-                        Page.AI -> BrainsScreen(pages.brains)
-                        Page.SETTINGS -> SettingsScreen(graph.settings, onDeleteEverything = graph::deleteEverything, benchmark = pages.benchmark)
-                        Page.VOICE_LAB -> pages.voiceLab?.let { VoiceLabScreen(it) }
-                        Page.BUDDIES -> BuddyScreen(graph, showOthers = true)
-                    }
+            Page.CHAT ->
+                Page(
+                    p.title,
+                    onBack = { page = null },
+                    scrolls = false,
+                    center = { ChatRoutePicker(pages.chat) },
+                    action = { glass -> GlassCircle(glass, painterResource(R.drawable.sym_edit_square), "New chat", pages.chat::newConversation) },
+                    backdrop = pageBackdrop,
+                ) { top -> ChatScreen(pages.chat, top) }
+
+            Page.ABILITIES -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { AbilitiesScreen(pages.abilities) }
+
+            Page.AI -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { BrainsScreen(pages.brains) }
+
+            Page.SETTINGS -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { SettingsScreen(graph.settings, onDeleteEverything = graph::deleteEverything, benchmark = pages.benchmark) }
+
+            Page.VOICE_LAB ->
+                Page(p.title, onBack = { page = null }, scrolls = false, backdrop = pageBackdrop) { top ->
+                    Spacer(Modifier.height(top))
+                    pages.voiceLab?.let { VoiceLabScreen(it) }
                 }
+
+            Page.BUDDIES ->
+                Page(p.title, onBack = { page = null }, scrolls = false, backdrop = pageBackdrop) { top ->
+                    Spacer(Modifier.height(top))
+                    BuddyScreen(graph, showOthers = true)
+                }
+        }
+
+        // Buddy's pop-up floats over every page; away from home it only shows cards, not the conversation.
+        BuddyIsland(
+            island = if (page == null || island is Island.Showing) island else Island.Hidden,
+            backdrop = if (page == null) backdrop else pageBackdrop,
+            accent = remember(genes) { genes?.let { accentOf(it) } } ?: palette.textSecondary,
+            level = level,
+            onDismiss = talk::dismissCard,
+            onDecide = talk::decide,
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 10.dp),
+        )
+
+        AnimatedVisibility(menu, enter = fadeIn(), exit = fadeOut()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.32f))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "Close the menu") { menu = false },
+            )
+        }
+        AnimatedVisibility(menu, enter = slideInHorizontally { -it } + fadeIn(), exit = slideOutHorizontally { -it } + fadeOut()) {
+            Menu(talk, genes, backdrop, onOpen = open)
         }
     }
 }
@@ -137,78 +171,85 @@ fun BuddyApp(
 @Composable
 private fun Menu(
     talk: TalkViewModel,
+    genes: Genes?,
+    backdrop: Backdrop,
     onOpen: (Page) -> Unit,
 ) {
+    val p = LocalPalette.current
     val auth by talk.auth.collectAsStateWithLifecycle()
-    val seed by produceState<Long?>(null) { value = talk.buddySeed() }
-    ModalDrawerSheet {
-        Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(52.dp).clip(CircleShape).background(Color.Black)) {
-                seed?.let {
+    Column(
+        Modifier
+            .fillMaxHeight()
+            .width(312.dp)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(10.dp)
+            .glass(backdrop, p.surface.copy(alpha = 0.86f), corner = 30.dp)
+            .padding(vertical = 14.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(44.dp).clip(CircleShape).background(p.background)) {
+                genes?.let {
                     BuddyView(
-                        genes = remember(it) { Genes.of(it) },
+                        genes = it,
                         act = Act.REST,
                         reaction = null,
                         reactionId = 0,
                         level = 0f,
-                        paper = Color.Black,
+                        paper = p.background,
+                        eyes = p.eyes,
                         frozenAt = 1.0,
-                        modifier = Modifier.fillMaxSize().padding(6.dp),
+                        modifier = Modifier.fillMaxSize().padding(4.dp),
                     )
                 }
             }
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(14.dp))
             Column {
-                Text("Buddy", style = MaterialTheme.typography.titleLarge)
+                Text("Buddy", style = MaterialTheme.typography.titleLarge, color = p.text)
                 Text(
-                    when (val a = auth) {
+                    when (auth) {
                         is AuthState.SignedIn -> "Signed in with ChatGPT"
                         AuthState.SignedOut -> "Not signed in yet"
-                        AuthState.Unknown -> ""
+                        AuthState.Unknown -> " "
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = p.textSecondary,
                 )
             }
         }
-        Page.entries.filter { !it.forTesting || BuildConfig.DEBUG }.forEach { p ->
-            if (p.forTesting && p == Page.entries.first { it.forTesting }) {
-                HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 12.dp))
-                Text(
-                    "For testing",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 4.dp),
-                )
-            }
-            NavigationDrawerItem(
-                label = { Text(p.title) },
-                icon = { Icon(p.icon, contentDescription = null) },
-                selected = false,
-                onClick = { onOpen(p) },
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-            )
+        Spacer(Modifier.height(10.dp))
+        MenuItem(painterResource(R.drawable.sym_chat_bubble), Page.CHAT.title) { onOpen(Page.CHAT) }
+        MenuItem(painterResource(R.drawable.sym_bolt), Page.ABILITIES.title) { onOpen(Page.ABILITIES) }
+        MenuItem(painterResource(R.drawable.sym_neurology), Page.AI.title) { onOpen(Page.AI) }
+        MenuItem(painterResource(R.drawable.sym_settings), Page.SETTINGS.title) { onOpen(Page.SETTINGS) }
+        if (BuildConfig.DEBUG) {
+            Spacer(Modifier.height(18.dp))
+            Text("For testing", style = MaterialTheme.typography.labelMedium, color = p.textTertiary, modifier = Modifier.padding(horizontal = 22.dp, vertical = 6.dp))
+            MenuItem(painterResource(R.drawable.sym_graphic_eq), Page.VOICE_LAB.title) { onOpen(Page.VOICE_LAB) }
+            MenuItem(painterResource(R.drawable.sym_sentiment_satisfied), Page.BUDDIES.title) { onOpen(Page.BUDDIES) }
         }
-        Spacer(Modifier.height(16.dp))
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PageScaffold(
+private fun MenuItem(
+    icon: Painter,
     title: String,
-    onBack: () -> Unit,
-    content: @Composable () -> Unit,
+    onClick: () -> Unit,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(title) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-            )
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding).consumeWindowInsets(padding)) { content() }
+    val p = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = p.text, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(16.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, color = p.text)
     }
 }
 

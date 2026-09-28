@@ -98,9 +98,9 @@ class WatchCalls(
                 Toolboxes(
                     listOf(
                         // Timers and alarms go to the watch unless the user asks for the phone: it's on the wrist, and on screen.
-                        PhoneActions(graph.appContext, graph.notes, graph.controls, graph.phoneClock, WatchOnCall(watch), graph.logger),
+                        PhoneActions(graph.appContext, graph.notes, graph.controls, graph.phoneClock, WatchOnCall(watch), graph.logger, cards = graph.cards),
                         // A call started from here takes over the phone's audio: Buddy makes way.
-                        ReachActions(graph.appContext, graph.contacts, graph.inbox, graph.userTurns, graph.logger, onCalling = { session?.endSoon() }),
+                        ReachActions(graph.appContext, graph.contacts, graph.inbox, graph.pending, graph.logger, onCalling = { session?.endSoon() }, cards = graph.cards),
                         graph.shortcuts,
                         ConversationActions({ session?.endSoon() }, graph.logger),
                     ),
@@ -124,6 +124,8 @@ class WatchCalls(
             channel = opened
             watcher =
                 graph.scope.launch {
+                    // A yes or no given on the phone's screen: the voice hears about it.
+                    launch { graph.cards.decidedOnScreen.collect { s.tell("The user answered on the phone's screen: $it") } }
                     val face = BuddyFace(watch)
                     s.state.collect { vs ->
                         _call.value = Call(watch.name, watch.route, vs)

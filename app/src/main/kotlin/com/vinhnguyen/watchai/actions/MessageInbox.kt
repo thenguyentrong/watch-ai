@@ -20,6 +20,7 @@ import com.vinhnguyen.watchai.WatchAiApp
 class MessageInbox {
     data class Message(
         val key: String,
+        val packageName: String,
         val app: String,
         val from: String,
         /** The chat's name when it's a group. */
@@ -88,7 +89,7 @@ class BuddyNotificationListener : NotificationListenerService() {
         val chat = style?.conversationTitle?.toString()?.takeIf { style.isGroupConversation && it != from }
         val reply = n.actions?.firstOrNull { a -> a.remoteInputs?.any { it.allowFreeFormInput } == true }
         val app = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(sbn.packageName)
-        inbox.add(MessageInbox.Message(sbn.key, app, from, chat, text.take(TEXT_MAX), sbn.postTime, reply))
+        inbox.add(MessageInbox.Message(sbn.key, sbn.packageName, app, from, chat, text.take(TEXT_MAX), sbn.postTime, reply))
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

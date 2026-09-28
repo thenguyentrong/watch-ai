@@ -36,6 +36,8 @@ class PhoneActions(
     private val watch: Watch? = null,
     private val logger: BrainLogger = BrainLogger.None,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
+    /** The phone's pop-up shows what got done. */
+    private val cards: CardHub? = null,
 ) : Toolbox {
     private val appContext = context.applicationContext
 
@@ -57,12 +59,12 @@ class PhoneActions(
                 ADD_REMINDER -> calendar(name) { addReminder(args) }
                 SET_TIMER -> setTimer(args)
                 SET_ALARM -> setAlarm(args)
-                RING_PHONE -> outcome(name, controls.ring(ActionArgs.int(args, "seconds", 5..60) ?: RING_SECONDS))
+                RING_PHONE -> outcome(name, controls.ring(ActionArgs.int(args, "seconds", 5..60) ?: RING_SECONDS)) { BuddyCard.Done(Symbol.PHONE, "Ringing your phone", "Stop it from its notification") }
                 STOP_RINGING -> outcome(name, controls.stopRinging())
-                MEDIA -> ActionArgs.choice(args, "command", PhoneControls.MEDIA_KEYS.keys)?.let { outcome(name, controls.media(it)) } ?: invalid(name, "command")
+                MEDIA -> ActionArgs.choice(args, "command", PhoneControls.MEDIA_KEYS.keys)?.let { command -> outcome(name, controls.media(command)) { BuddyCard.Done(Symbol.MUSIC, MEDIA_TITLES.getValue(command)) } } ?: invalid(name, "command")
                 SET_VOLUME -> setVolume(args)
-                SET_RINGER -> ActionArgs.choice(args, "mode", PhoneControls.RINGER_MODES.keys)?.let { outcome(name, controls.ringer(it)) } ?: invalid(name, "mode")
-                DO_NOT_DISTURB -> ActionArgs.bool(args, "on")?.let { outcome(name, controls.doNotDisturb(it)) } ?: invalid(name, "on")
+                SET_RINGER -> ActionArgs.choice(args, "mode", PhoneControls.RINGER_MODES.keys)?.let { mode -> outcome(name, controls.ringer(mode)) { BuddyCard.Done(Symbol.PHONE, "Ringer: $mode") } } ?: invalid(name, "mode")
+                DO_NOT_DISTURB -> ActionArgs.bool(args, "on")?.let { on -> outcome(name, controls.doNotDisturb(on)) { BuddyCard.Done(Symbol.PHONE, if (on) "Do Not Disturb on" else "Do Not Disturb off") } } ?: invalid(name, "on")
                 DEVICE_STATUS -> outcome(name, listOfNotNull(controls.status(), watch?.battery()).joinToString("; "))
                 else -> done(name, "unknown", "error: there is no action called $name")
             }
@@ -74,6 +76,7 @@ class PhoneActions(
     private suspend fun addNote(args: JsonObject): String {
         val text = ActionArgs.text(args, "text", NOTE_MAX) ?: return done(ADD_NOTE, "invalid", "error: the note needs text (up to $NOTE_MAX characters)")
         notes.add(text)
+        cards?.show(BuddyCard.Done(Symbol.NOTE, "Note saved", text))
         return done(ADD_NOTE, "ok", "ok: note saved")
     }
 
@@ -91,7 +94,7 @@ class PhoneActions(
     ): String = if (calendarAllowed()) {
         block()
     } else {
-        done(name, "denied", "error: calendar access is off. Tell the user to allow it in the Buddy app, under Things it can do.")
+        done(name, "denied", "error: calendar access is off. Tell the user to allow it in the Buddy phone app: in the menu, What Buddy can do.")
     }
 
     private suspend fun addEvent(args: JsonObject): String {
@@ -103,6 +106,7 @@ class PhoneActions(
             is ActionArgs.When.Day -> {
                 if (!plausible(start.date.atStartOfDay())) return done(ADD_EVENT, "invalid", "error: that date is too far away")
                 insertEvent(title, start.date.atStartOfDay(), start.date.plusDays(1).atStartOfDay(), allDay = true, location, details, alertMinutes = null)
+                cards?.show(BuddyCard.Done(Symbol.CALENDAR, title, "${ActionArgs.say(start.date)} · all day"))
                 done(ADD_EVENT, "ok", "ok: added \"$title\" as an all-day event on ${ActionArgs.say(start.date)}")
             }
 
@@ -113,6 +117,7 @@ class PhoneActions(
                         ?: start.time.plusMinutes((ActionArgs.int(args, "duration_minutes", 5..1_440) ?: 60).toLong())
                 if (Duration.between(start.time, end) > Duration.ofDays(1)) return done(ADD_EVENT, "invalid", "error: events can be at most a day long")
                 insertEvent(title, start.time, end, allDay = false, location, details, alertMinutes = ActionArgs.int(args, "alert_minutes_before", 0..10_080))
+                cards?.show(BuddyCard.Done(Symbol.CALENDAR, title, ActionArgs.say(start.time)))
                 done(ADD_EVENT, "ok", "ok: added \"$title\" on ${ActionArgs.say(start.time)} until ${end.toLocalTime()}")
             }
         }
@@ -123,6 +128,7 @@ class PhoneActions(
         val at = ActionArgs.time(ActionArgs.text(args, "at", 40), zone()) as? ActionArgs.When.At ?: return done(ADD_REMINDER, "invalid", "error: at must be a date and time like 2026-09-28T15:00")
         if (!plausible(at.time)) return done(ADD_REMINDER, "invalid", "error: that time is in the past or too far away")
         insertEvent(text, at.time, at.time.plusMinutes(REMINDER_MINUTES), allDay = false, location = null, details = "Reminder from Buddy", alertMinutes = 0)
+        cards?.show(BuddyCard.Done(Symbol.CALENDAR, text, "Reminder · ${ActionArgs.say(at.time)}"))
         return done(ADD_REMINDER, "ok", "ok: the phone will remind the user on ${ActionArgs.say(at.time)}")
     }
 
@@ -139,14 +145,16 @@ class PhoneActions(
     private suspend fun setTimer(args: JsonObject): String {
         val seconds = ActionArgs.int(args, "seconds", 1..86_400) ?: return done(SET_TIMER, "invalid", "error: seconds must be between 1 and 86400")
         val clock = clockFor(args) ?: return done(SET_TIMER, "invalid", NO_WATCH)
-        return outcome(SET_TIMER, clock.setTimer(seconds, ActionArgs.text(args, "label", TITLE_MAX)))
+        val label = ActionArgs.text(args, "label", TITLE_MAX)
+        return outcome(SET_TIMER, clock.setTimer(seconds, label)) { BuddyCard.Done(Symbol.TIMER, "Timer · ${length(seconds)}", label) }
     }
 
     private suspend fun setAlarm(args: JsonObject): String {
         val hour = ActionArgs.int(args, "hour", 0..23) ?: return done(SET_ALARM, "invalid", "error: hour must be 0 to 23")
         val minute = ActionArgs.int(args, "minute", 0..59) ?: 0
         val clock = clockFor(args) ?: return done(SET_ALARM, "invalid", NO_WATCH)
-        return outcome(SET_ALARM, clock.setAlarm(hour, minute, ActionArgs.text(args, "label", TITLE_MAX)))
+        val label = ActionArgs.text(args, "label", TITLE_MAX)
+        return outcome(SET_ALARM, clock.setAlarm(hour, minute, label)) { BuddyCard.Done(Symbol.ALARM, "Alarm · %02d:%02d".format(hour, minute), label) }
     }
 
     /** Where the user said ("on my phone"), else the device they talk through; null if they asked for a watch that isn't in the conversation. */
@@ -160,13 +168,28 @@ class PhoneActions(
         val level = ActionArgs.int(args, "level", 0..100)
         val change = ActionArgs.choice(args, "change", setOf("up", "down"))
         if (level == null && change == null) return done(SET_VOLUME, "invalid", "error: give a level from 0 to 100, or change up or down")
-        return outcome(SET_VOLUME, controls.volume(level, change?.let { it == "up" }))
+        return outcome(SET_VOLUME, controls.volume(level, change?.let { it == "up" })) { BuddyCard.Done(Symbol.MUSIC, "Volume", level?.let { "$it%" } ?: change) }
     }
 
+    /** [card] shows on the phone when it worked. */
     private fun outcome(
         tool: String,
         result: String,
-    ) = done(tool, if (result.startsWith("error")) "failed" else "ok", result)
+        card: (() -> BuddyCard)? = null,
+    ): String {
+        val failed = result.startsWith("error")
+        if (!failed) card?.let { cards?.show(it()) }
+        return done(tool, if (failed) "failed" else "ok", result)
+    }
+
+    /** "10 min", "1 h 30 min", "45 s". */
+    private fun length(seconds: Int): String = when {
+        seconds < 60 -> "$seconds s"
+        seconds % 3_600 == 0 -> "${seconds / 3_600} h"
+        seconds >= 3_600 -> "${seconds / 3_600} h ${seconds % 3_600 / 60} min"
+        seconds % 60 == 0 -> "${seconds / 60} min"
+        else -> "${seconds / 60} min ${seconds % 60} s"
+    }
 
     private fun invalid(
         tool: String,
@@ -325,6 +348,7 @@ class PhoneActions(
         private const val LIST_MAX_EVENTS = 15
         private const val RING_SECONDS = 30
         private val PLACES = setOf("watch", "phone")
+        private val MEDIA_TITLES = mapOf("play" to "Playing", "pause" to "Paused", "next" to "Next track", "previous" to "Previous track")
         private const val NO_WATCH = "error: timers and alarms only go on the watch while the user talks through it; offer the phone instead"
 
         private const val LOCAL_TIME = "Local date and time without a zone, like 2026-09-28T15:00, or just a date for all day."

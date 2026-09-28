@@ -24,6 +24,7 @@ class PhoneShortcuts(
     private val logger: BrainLogger = BrainLogger.None,
     /** The Buddy app is on screen: Android lets it open things then without the OK. */
     private val foreground: () -> Boolean = { false },
+    private val cards: CardHub? = null,
 ) : Toolbox {
     private val appContext = context.applicationContext
 
@@ -64,7 +65,7 @@ class PhoneShortcuts(
             else -> {
                 val (pkg, label) = found.first()
                 val intent = pm.getLaunchIntentForPackage(pkg) ?: return done(OPEN_APP, "failed", "error: $label can't be opened from here")
-                show(OPEN_APP, intent, "opened $label on the phone")
+                show(OPEN_APP, intent, "opened $label on the phone").also { if (it.startsWith("ok")) cards?.show(BuddyCard.App(pkg, "Opened $label")) }
             }
         }
     }
@@ -83,7 +84,7 @@ class PhoneShortcuts(
                 .appendQueryParameter("travelmode", MODES[mode ?: "driving"])
                 .appendQueryParameter("dir_action", "navigate")
                 .build()
-        return show(NAVIGATE, Intent(Intent.ACTION_VIEW, uri), "directions to $place are open on the phone")
+        return show(NAVIGATE, Intent(Intent.ACTION_VIEW, uri), "directions to $place are open on the phone").also { if (it.startsWith("ok")) cards?.show(BuddyCard.Place(place)) }
     }
 
     private fun flashlight(on: Boolean): String {
@@ -92,6 +93,7 @@ class PhoneShortcuts(
             ?: return done(FLASHLIGHT, "failed", "error: this phone has no flashlight")
         return try {
             cameras.setTorchMode(id, on)
+            cards?.show(BuddyCard.Done(Symbol.LIGHT, if (on) "Flashlight on" else "Flashlight off"))
             done(FLASHLIGHT, "ok", "ok: flashlight ${if (on) "on" else "off"}")
         } catch (e: CameraAccessException) {
             done(FLASHLIGHT, "failed", "error: the camera is busy, so the flashlight can't be switched now")
@@ -105,7 +107,7 @@ class PhoneShortcuts(
         what: String,
     ): String {
         if (!foreground() && !Settings.canDrawOverlays(appContext)) {
-            return done(tool, "denied", "error: Android only lets Buddy open things on the phone with its OK. Tell the user to allow \"Phone clock from your pocket\" in the Buddy app, under Things it can do.")
+            return done(tool, "denied", "error: Android only lets Buddy open things on the phone with its OK. Tell the user to allow \"Open apps and directions\" in the Buddy phone app: in the menu, What Buddy can do.")
         }
         return try {
             appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

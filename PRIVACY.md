@@ -19,12 +19,14 @@ crash reporting of its own.
 | Texts and calls you confirm | Sent or placed by your phone after your yes; a text reaches the other person through your carrier | You asked for it | Your phone's own message and call history |
 | Notes and calendar | Notes encrypted on your phone; calendar events read and added in your phone's calendar (with your OK) | You asked for it | Sent to OpenAI only with the request that needs them |
 | Places for directions, apps you open | Handed to Google Maps or the app on your phone | You asked for it | Their terms apply |
+| The small map in Buddy's pop-up (when you ask for directions) | The place name goes from your phone to OpenStreetMap, to find it and fetch the map around it; they see your IP address | To show you where it is | Not stored by the app; OpenStreetMap's privacy policy applies |
 | ChatGPT sign-in (tokens, account id, plan, masked email) | Encrypted on your phone with a key that can't leave it | To keep you signed in | Until you sign out or delete everything |
 | On-device model download | Your phone downloads it from Hugging Face; they see your IP address | To run Gemma on your phone | The model stays until you delete it |
 | Gemini Nano (only if you opt in) | Google's ML Kit sends Google anonymous diagnostics (device model, speed, error codes) | Needed by Google's on-device API | Google's terms apply |
 | Answers you flag | Encrypted on your phone; your question only if you tick the box | To report harmful or wrong answers | Until you delete everything |
 
-International transfers: OpenAI, Hugging Face and Google may process data in the USA under their own
+International transfers: OpenAI, Hugging Face and Google may process data in the USA, and the
+OpenStreetMap Foundation in the UK (its map tiles come through a worldwide CDN), under their own
 safeguards; this happens only when you use those features.
 
 Messages you got and your contacts include other people's details. They're handled on your phone,

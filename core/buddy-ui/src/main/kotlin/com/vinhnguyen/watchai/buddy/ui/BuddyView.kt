@@ -46,6 +46,8 @@ fun BuddyView(
     busyFps: Int = fps,
     frozenAt: Double? = null,
     ambient: Boolean = false,
+    /** The face's colour; the background's by default, as if cut out. */
+    eyes: Color = paper,
 ) {
     val context = LocalContext.current
     val still = remember { Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
@@ -76,7 +78,7 @@ fun BuddyView(
     // Its own layer: a tick re-records only Buddy, not the screen around it.
     Canvas(modifier.graphicsLayer()) {
         val frame = director.frame(scene, level, t, blend = frozenAt == null && !ambient)
-        if (ambient) drawAmbientBuddy(frame, paths) else drawBuddy(frame, ink, accent, paper, paths)
+        if (ambient) drawAmbientBuddy(frame, paths) else drawBuddy(frame, ink, accent, paper, paths, eyes = eyes)
     }
 }
 

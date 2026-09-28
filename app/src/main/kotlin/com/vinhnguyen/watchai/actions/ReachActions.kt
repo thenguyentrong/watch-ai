@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Telephony
 import android.telecom.TelecomManager
 import android.telephony.SmsManager
 import androidx.core.content.ContextCompat
@@ -32,14 +33,15 @@ class ReachActions(
     context: Context,
     private val contacts: Contacts,
     private val inbox: MessageInbox,
-    turns: UserTurns,
+    /** One for the whole app: the phone's pop-up can answer it too. */
+    private val pending: Pending,
     private val logger: BrainLogger = BrainLogger.None,
     /** A call is starting: the conversation makes way for it. */
     private val onCalling: () -> Unit = {},
+    private val cards: CardHub? = null,
     private val wallClock: () -> Long = System::currentTimeMillis,
 ) : Toolbox {
     private val appContext = context.applicationContext
-    private val pending = Pending(turns)
 
     override fun tools(): List<ToolSpec> = SPECS
 
@@ -51,10 +53,20 @@ class ReachActions(
         return try {
             when (name) {
                 SEND_TEXT -> sendText(args)
+
                 READ_MESSAGES -> readMessages(args)
+
                 REPLY -> reply(args)
+
                 CALL -> call(args)
-                CONFIRM -> ActionArgs.choice(args, "answer", setOf("yes", "no"))?.let { outcome(name, pending.decide(it == "yes")) } ?: done(name, "invalid", "error: answer must be yes or no")
+
+                CONFIRM ->
+                    ActionArgs.choice(args, "answer", setOf("yes", "no"))?.let {
+                        val result = pending.decide(it == "yes")
+                        if (!result.startsWith("error: the user hasn't answered") && !result.startsWith("error: nothing")) cards?.show(CardHub.decision(result))
+                        outcome(name, result)
+                    } ?: done(name, "invalid", "error: answer must be yes or no")
+
                 else -> done(name, "unknown", "error: there is no action called $name")
             }
         } catch (e: SecurityException) {
@@ -70,6 +82,7 @@ class ReachActions(
             is Found.One -> found
             is Found.Problem -> return done(SEND_TEXT, "invalid", found.say)
         }
+        cards?.show(BuddyCard.Ask("Text ${target.name}", text, "Send", runCatching { Telephony.Sms.getDefaultSmsPackage(appContext) }.getOrNull()))
         return done(SEND_TEXT, "proposed", pending.propose("Send \"$text\" to ${target.name} (${target.label}) by SMS.") { outcome(SEND_TEXT, sms(target.number, text, target.name)) })
     }
 
@@ -81,6 +94,7 @@ class ReachActions(
         val from = ActionArgs.text(args, "from", NAME_MAX)
         val chosen = if (from == null) all else NameMatch.best(from, all) { m -> listOfNotNull(m.from, m.chat).joinToString(" ") }
         if (chosen.isEmpty()) return done(READ_MESSAGES, "ok", if (from == null) "there are no new messages" else "there are no new messages from $from")
+        cards?.show(BuddyCard.Messages(chosen.take(limit).map { BuddyCard.Messages.Line(it.packageName, it.from, it.text) }))
         val listed =
             chosen.take(limit).joinToString(" | ") { m ->
                 val where = m.chat?.let { " in \"$it\"" }.orEmpty()
@@ -104,6 +118,7 @@ class ReachActions(
             else -> {
                 val m = matches.first()
                 val chat = m.chat?.let { "the \"$it\" chat" } ?: m.from
+                cards?.show(BuddyCard.Ask("Reply to ${m.chat ?: m.from}", text, "Send", m.packageName))
                 done(
                     REPLY,
                     "proposed",
@@ -122,6 +137,7 @@ class ReachActions(
             is Found.One -> found
             is Found.Problem -> return done(CALL, "invalid", found.say)
         }
+        cards?.show(BuddyCard.Ask("Call ${target.name}", target.label.replaceFirstChar { it.uppercase() }, "Call", appContext.getSystemService(TelecomManager::class.java).defaultDialerPackage))
         return done(
             CALL,
             "proposed",
@@ -234,8 +250,8 @@ class ReachActions(
         private const val NAME_MAX = 100
         private const val MIN_DIGITS = 5
         private const val SENT_TIMEOUT_MS = 20_000L
-        private const val ASK_FOR_OK = "error: Buddy isn't allowed to use the contacts, texts or calls yet. Tell the user to allow it in the Buddy app on their phone, under Things it can do."
-        private const val NO_NOTIFICATIONS = "error: Buddy can't see the user's messages yet. Tell the user to allow notification access in the Buddy app on their phone, under Things it can do."
+        private const val ASK_FOR_OK = "error: Buddy isn't allowed to use the contacts, texts or calls yet. Tell the user to allow it in the Buddy app on their phone: in the menu, What Buddy can do."
+        private const val NO_NOTIFICATIONS = "error: Buddy can't see the user's messages yet. Tell the user to allow notification access in the Buddy app on their phone: in the menu, What Buddy can do."
         private const val NOTHING_YET = "Nothing is sent yet: the result gives you what to read back to the user; only after they say yes, call confirm_action."
 
         val SPECS =

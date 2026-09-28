@@ -122,6 +122,20 @@ object QuicksilverWire {
         }.toString()
     }
 
+    /** Frames that tell the voice something that happened outside a hand-off (a button on screen); it may say it. */
+    fun noteFrames(text: String): List<String> = chunk(bound(text)).map { part ->
+        buildJsonObject {
+            put("type", "session.context.append")
+            put("channel", "speakable")
+            putJsonArray("content") {
+                addJsonObject {
+                    put("type", "input_text")
+                    put("text", part)
+                }
+            }
+        }.toString()
+    }
+
     fun bound(text: String): String = if (text.length <= MAX_RESULT_CHARS) text else text.take(MAX_RESULT_CHARS - 16).trimEnd() + " [truncated]"
 
     /** Splits at character boundaries so no frame's text is over [maxBytes] of UTF-8. */

@@ -78,6 +78,6 @@ class PhoneClock(
     private companion object {
         const val IN_BACKGROUND =
             "error: the phone can't open its clock app while Buddy isn't on its screen. Offer to set it on the watch, or tell the " +
-                "user to switch on \"Phone clock from your pocket\" once in the Buddy phone app (Voice tab)."
+                "user to allow \"Open apps and directions\" once in the Buddy phone app (in the menu, What Buddy can do)."
     }
 }
