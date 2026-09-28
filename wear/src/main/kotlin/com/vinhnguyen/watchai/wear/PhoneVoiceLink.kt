@@ -146,6 +146,7 @@ class PhoneVoiceLink private constructor(
             micOn = null
             phoneHungUp = false
             _state.value = State(Phase.CONNECTING, detail = "Calling your phone…")
+            Log.i(TAG, "calling the phone")
             CallService.talk(appContext)
             val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             scope = s
@@ -163,6 +164,7 @@ class PhoneVoiceLink private constructor(
             output = null
             s.coroutineContext[Job]?.cancelAndJoin()
             restoreAudio()
+            Log.i(TAG, "call ended")
             CallService.talked()
             if (answered) buzz(VibrationEffect.EFFECT_DOUBLE_CLICK)
             _state.value = State()
@@ -178,6 +180,17 @@ class PhoneVoiceLink private constructor(
         try {
             // The mic opens at once: what the user says while the phone picks up is kept, not lost.
             s.launch { listen() }
+            // A phone that never picks up must not keep the watch's mic open.
+            s.launch {
+                delay(ANSWER_TIMEOUT_MS)
+                if (!answered) {
+                    Log.w(TAG, "the phone didn't answer")
+                    cleanup.launch {
+                        stop()
+                        _state.value = State(Phase.ERROR, detail = "Your phone didn't answer")
+                    }
+                }
+            }
             val nodes = Wearable.getNodeClient(appContext).connectedNodes.await()
             val phone = nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull() ?: throw IOException("Phone not connected")
             val opened = channels.openChannel(phone.id, WatchLink.VOICE_PATH).await()
@@ -199,7 +212,14 @@ class PhoneVoiceLink private constructor(
             }
         } catch (e: Exception) {
             if (!currentScopeActive(s)) return
-            _state.value = State(Phase.ERROR, detail = e.message ?: "Could not reach the phone")
+            Log.w(TAG, "call failed: ${e::class.simpleName}")
+            val detail = e.message ?: "Could not reach the phone"
+            // Hang up properly: the mic closes, "Hey Buddy" listens again and a tap tries again.
+            // Only showing the error left the call "on": the wake word stayed paused, taps did nothing.
+            cleanup.launch {
+                stop()
+                _state.value = State(Phase.ERROR, detail = detail)
+            }
         }
     }
 
@@ -487,6 +507,7 @@ class PhoneVoiceLink private constructor(
         private const val LEVEL_EVERY_MS = 100L
         private const val FRAME_MS = 40
         private const val EARLY_FRAMES = 200 // 8 s said before the phone picks up
+        private const val ANSWER_TIMEOUT_MS = 20_000L
 
         @Volatile private var instance: PhoneVoiceLink? = null
 

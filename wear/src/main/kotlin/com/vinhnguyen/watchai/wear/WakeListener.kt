@@ -84,6 +84,7 @@ internal class WakeListener(
     /** A conversation started: the microphone is its now. */
     @Synchronized
     fun pause() {
+        Log.i(TAG, "paused for a conversation")
         paused = true
         close()
     }
@@ -91,6 +92,7 @@ internal class WakeListener(
     /** The conversation ended: listen again while the screen is still on. */
     @Synchronized
     fun resume() {
+        Log.i(TAG, "back after the conversation")
         paused = false
         if (power.isInteractive) open()
     }
@@ -120,7 +122,10 @@ internal class WakeListener(
 
     @Synchronized
     private fun open() {
-        if (paused) return
+        if (paused) {
+            Log.i(TAG, "screen on, but a conversation has the mic")
+            return
+        }
         val previous = window?.also { it.cancel() }
         val openedAt = SystemClock.elapsedRealtime()
         window =
@@ -149,7 +154,8 @@ internal class WakeListener(
         return try {
             record.startRecording()
             _listening.value = true
-            withTimeoutOrNull(left) { heardIn(record, w) } ?: false
+            Log.i(TAG, "listening")
+            (withTimeoutOrNull(left) { heardIn(record, w) } ?: false).also { Log.i(TAG, if (it) "heard it" else "stopped listening") }
         } finally {
             _listening.value = false
             runCatching { record.stop() }
