@@ -44,6 +44,43 @@ class OutboxTest {
     }
 
     @Test
+    fun `what was said before the phone picked up goes first and is never dropped`() {
+        val box = Outbox(maxAudio = 2)
+        box.offer(audio(9))
+        box.offerBacklog((1..5).map { audio(it) })
+        box.offer(audio(10))
+        box.offer(audio(11))
+        val sent = box.takeAll(10).filterIsInstance<Frame.Adpcm>().map { it.packet[0].toInt() }
+        // The live audio still keeps to its limit; all five early frames make it, in front.
+        assertThat(sent).containsExactly(1, 2, 3, 4, 5, 10, 11).inOrder()
+    }
+
+    @Test
+    fun `early speech starts just before the voice and keeps the last few seconds`() {
+        val early = EarlySpeech(maxFrames = 4, voiceLevel = 0.1f)
+        fun frame(n: Int) = ShortArray(1) { n.toShort() }
+        early.add(frame(1), 0f)
+        early.add(frame(2), 0f)
+        early.add(frame(3), 0.2f)
+        early.add(frame(4), 0.3f)
+        early.add(frame(5), 0f)
+        // Frame 1 fell out (only four fit); the drain starts one frame before the first voiced one.
+        assertThat(early.drain().map { it[0].toInt() }).containsExactly(2, 3, 4, 5).inOrder()
+        assertThat(early.drain()).isEmpty()
+        early.add(frame(6), 0f)
+        assertThat(early.drain()).isEmpty()
+    }
+
+    @Test
+    fun `a queue trimmed back keeps the newest samples`() {
+        val q = PcmQueue(10)
+        q.offer(ShortArray(8) { it.toShort() })
+        q.trimTo(3)
+        assertThat(q.available).isEqualTo(3)
+        assertThat(q.take(3).toList()).containsExactly(5.toShort(), 6.toShort(), 7.toShort()).inOrder()
+    }
+
+    @Test
     fun `frames written together read back one by one`() {
         val bytes = ByteArrayOutputStream()
         FrameCodec.writeAll(DataOutputStream(bytes), listOf(audio(7), Frame.Flush, Frame.Message(Control("ping", at = 1))))

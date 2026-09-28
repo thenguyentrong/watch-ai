@@ -24,6 +24,12 @@ interface ExternalAudio {
     val micOnDevice: Boolean
 
     /**
+     * True while this device still has speech from before the conversation connected (said right
+     * after "Hey Buddy"): it goes to the model first, even while a headset on the phone is the mic.
+     */
+    val catchingUp: Boolean get() = false
+
+    /**
      * Called every 10 ms on WebRTC's recording thread, before the audio is sent: overwrite the
      * first [bytes] of [buffer] (16-bit PCM, [sampleRate], [channels] interleaved) with the user's voice.
      */

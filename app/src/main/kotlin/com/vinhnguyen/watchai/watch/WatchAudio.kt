@@ -46,18 +46,30 @@ class WatchAudio(
     override val answerOnPhone: Boolean get() = route != Route.WATCH
     override val micOnDevice: Boolean get() = route != Route.HEADSET
 
+    /**
+     * At the start of a call the watch sends what the user said while the phone picked up, in one
+     * burst: it all goes in, and plays out in real time before the usual half-second limit applies.
+     * Ends once that has played out, or soon after the call started if nothing was said.
+     */
+    @Volatile private var catchUp = true
+
+    @Volatile private var heardEarly = false
+    private var startedAt = 0L
+
+    override val catchingUp: Boolean get() = catchUp
+
     /** Headphones or a headset came or went on the phone: tell the watch what it's used for now. */
     fun setRoute(next: Route) {
         if (next == route) return
         route = next
         if (answerOnPhone) flushAnswer()
-        if (!micOnDevice) mic.clear()
+        if (!micOnDevice && !catchUp) mic.clear()
         outbox.offer(routeMessage())
     }
 
     private fun routeMessage() = Frame.Message(Control("route", speaker = route == Route.WATCH, mic = route != Route.HEADSET))
 
-    private val mic = PcmQueue(WatchLink.SAMPLE_RATE / 2)
+    private val mic = PcmQueue(WatchLink.SAMPLE_RATE * EARLY_MAX_S)
     private val outbox = Outbox(maxAudio = OUTBOX_FRAMES)
     private val pending = ShortArray(WatchLink.FRAME_SAMPLES)
     private var pendingCount = 0
@@ -114,6 +126,7 @@ class WatchAudio(
     }
 
     fun start() {
+        startedAt = SystemClock.elapsedRealtime()
         outbox.offer(Frame.Message(Control("status", phase = "connecting")))
         outbox.offer(routeMessage())
         thread(name = "watch-in", isDaemon = true) { readLoop() }
@@ -135,12 +148,12 @@ class WatchAudio(
                 when (val frame = FrameCodec.read(input) ?: break) {
                     is Frame.Audio -> {
                         stats.add("inPcm")
-                        if (micOnDevice && !saying) mic.offer(Pcm.toShorts(frame.pcm))
+                        heard(Pcm.toShorts(frame.pcm))
                     }
 
                     is Frame.Adpcm -> {
                         stats.add("inAdpcm")
-                        if (micOnDevice && !saying) mic.offer(Adpcm.decode(frame.packet))
+                        heard(Adpcm.decode(frame.packet))
                     }
 
                     is Frame.Message ->
@@ -162,6 +175,18 @@ class WatchAudio(
             // The watch went away; handled below.
         }
         if (!closed) onEnd()
+    }
+
+    /** The watch mic's audio: queued while the watch is the mic, or while the early burst comes in. */
+    private fun heard(pcm: ShortArray) {
+        if (saying) return
+        if (catchUp) {
+            heardEarly = true
+            mic.offer(pcm)
+        } else if (micOnDevice) {
+            mic.offer(pcm)
+            mic.trimTo(LIVE_MAX_SAMPLES)
+        }
     }
 
     /** Sends everything waiting in one write: each flush costs the watch a Bluetooth round trip. */
@@ -215,6 +240,9 @@ class WatchAudio(
         val frames = bytes / 2 / channels
         val wanted = (frames.toLong() * WatchLink.SAMPLE_RATE / sampleRate).toInt()
         val samples = Pcm.resample(mic.take(wanted), WatchLink.SAMPLE_RATE, sampleRate)
+        // The early burst has played out (or none came): from the next buffer on, live audio only,
+        // and with earbuds as the mic WebRTC stops calling here.
+        if (catchUp && mic.available == 0 && (heardEarly || SystemClock.elapsedRealtime() - startedAt > CATCH_UP_WAIT_MS)) catchUp = false
         // WebRTC reads the buffer from its start; write there without moving its position.
         val out = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
         for (i in 0 until frames) {
@@ -271,5 +299,14 @@ class WatchAudio(
         const val ASK_TIMEOUT_MS = 5_000L
         const val FRAME_MS = 40L
         const val TAG = "WatchLink"
+
+        /** Room for the early burst (the watch keeps up to 8 s). */
+        const val EARLY_MAX_S = 10
+
+        /** After the early burst, a half second at most waits for WebRTC, so latency can't grow. */
+        const val LIVE_MAX_SAMPLES = WatchLink.SAMPLE_RATE / 2
+
+        /** How long a call waits for the early burst before it's plain live audio. */
+        const val CATCH_UP_WAIT_MS = 2_500L
     }
 }

@@ -16,13 +16,26 @@ public class Outbox(
     private val lock = ReentrantLock()
     private val ready = lock.newCondition()
     private val frames = ArrayDeque<Frame>()
+    private val backlog = ArrayDeque<Frame>()
     private var audioCount = 0
 
     /** Frames dropped because the link was behind (for the link counters). */
     public var dropped: Long = 0
         private set
 
-    public val size: Int get() = lock.withLock { frames.size }
+    public val size: Int get() = lock.withLock { backlog.size + frames.size }
+
+    /**
+     * Audio that is late on purpose (what the user said before the phone picked up): goes out
+     * first and is never dropped for being behind, however long it is.
+     */
+    public fun offerBacklog(backlogFrames: List<Frame>) {
+        if (backlogFrames.isEmpty()) return
+        lock.withLock {
+            backlog.addAll(backlogFrames)
+            ready.signal()
+        }
+    }
 
     public fun offer(frame: Frame) {
         lock.withLock {
@@ -39,15 +52,17 @@ public class Outbox(
     public fun clearAudio() {
         lock.withLock {
             frames.removeIf { it.isAudio() }
+            backlog.clear()
             audioCount = 0
         }
     }
 
-    /** Everything waiting, or an empty list after [timeoutMs] without anything. */
+    /** Everything waiting (the backlog first), or an empty list after [timeoutMs] without anything. */
     public fun takeAll(timeoutMs: Long): List<Frame> {
         lock.withLock {
-            if (frames.isEmpty()) ready.await(timeoutMs, TimeUnit.MILLISECONDS)
-            val all = frames.toList()
+            if (frames.isEmpty() && backlog.isEmpty()) ready.await(timeoutMs, TimeUnit.MILLISECONDS)
+            val all = backlog.toList() + frames.toList()
+            backlog.clear()
             frames.clear()
             audioCount = 0
             return all

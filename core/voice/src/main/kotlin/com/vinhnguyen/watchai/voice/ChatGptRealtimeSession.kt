@@ -232,8 +232,9 @@ class ChatGptRealtimeSession(
                     external?.let { ext ->
                         // Runs before WebRTC sends each 10 ms buffer: put the external mic's audio in it.
                         setAudioBufferCallback { buffer, _, channels, sampleRate, bytes, captureTimeNs ->
-                            // With a headset on the phone, its microphone goes through unchanged.
-                            if (ext.micOnDevice) ext.fillMicrophone(buffer, bytes, sampleRate, channels)
+                            // With a headset on the phone, its microphone goes through unchanged, once
+                            // what was said before the call connected has been played in.
+                            if (ext.micOnDevice || ext.catchingUp) ext.fillMicrophone(buffer, bytes, sampleRate, channels)
                             captureTimeNs
                         }
                     }

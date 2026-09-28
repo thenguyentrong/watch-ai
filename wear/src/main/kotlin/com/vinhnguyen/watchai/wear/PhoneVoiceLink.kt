@@ -24,6 +24,7 @@ import com.vinhnguyen.watchai.buddy.Mood
 import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.watchlink.Adpcm
 import com.vinhnguyen.watchai.watchlink.Control
+import com.vinhnguyen.watchai.watchlink.EarlySpeech
 import com.vinhnguyen.watchai.watchlink.Frame
 import com.vinhnguyen.watchai.watchlink.FrameCodec
 import com.vinhnguyen.watchai.watchlink.LinkStats
@@ -104,8 +105,13 @@ class PhoneVoiceLink private constructor(
 
     @Volatile private var micLevel = 0f
 
-    /** The phone picked up (sent its first frame). Until then nothing is sent, so no audio piles up. */
+    /** The phone picked up (sent its first frame). Until then the mic only fills [early]. */
     @Volatile private var answered = false
+
+    /** What the user says while the phone picks up ("Hey Buddy, what time is it?" in one breath). */
+    private val early = EarlySpeech(maxFrames = EARLY_FRAMES, voiceLevel = MIC_SILENCE)
+
+    @Volatile private var earlySent = false
 
     /** Whether the watch plays the answer and records the user; null until the phone says (it does so right away). */
     @Volatile private var speakerOn: Boolean? = null
@@ -134,6 +140,8 @@ class PhoneVoiceLink private constructor(
                 return
             }
             answered = false
+            early.drain()
+            earlySent = false
             speakerOn = null
             micOn = null
             phoneHungUp = false
@@ -168,6 +176,8 @@ class PhoneVoiceLink private constructor(
 
     private suspend fun run(s: CoroutineScope) {
         try {
+            // The mic opens at once: what the user says while the phone picks up is kept, not lost.
+            s.launch { listen() }
             val nodes = Wearable.getNodeClient(appContext).connectedNodes.await()
             val phone = nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull() ?: throw IOException("Phone not connected")
             val opened = channels.openChannel(phone.id, WatchLink.VOICE_PATH).await()
@@ -176,7 +186,6 @@ class PhoneVoiceLink private constructor(
             val out = DataOutputStream(BufferedOutputStream(channels.getOutputStream(opened).await()))
             output = out
             s.launch { speak() }
-            s.launch { listen() }
             s.launch { send(out) }
             s.launch { ping() }
             receive(input)
@@ -312,7 +321,11 @@ class PhoneVoiceLink private constructor(
                     lastLevelAt = now
                     _state.update { it.copy(level = micLevel) }
                 }
-                if (!answered) continue
+                if (!answered) {
+                    early.add(frame.copyOf(n), micLevel)
+                    continue
+                }
+                if (!earlySent) sendEarly(encoder)
                 val pcm = frame.copyOf(n)
                 val wasOpen = previous == null
                 if (gate.shouldSend(micLevel)) {
@@ -327,11 +340,22 @@ class PhoneVoiceLink private constructor(
                 }
             }
         } finally {
+            // Earbuds on the phone took over as the mic: the phone still takes what was said before.
+            if (answered && !earlySent) sendEarly(encoder)
             runCatching { record.stop() }
             aec?.release()
             record.release()
             micLevel = 0f
         }
+    }
+
+    /** What was said before the phone picked up, all at once and ahead of the live audio. */
+    private fun sendEarly(encoder: Adpcm.Encoder) {
+        earlySent = true
+        val frames = early.drain()
+        if (frames.isEmpty()) return
+        outbox.offerBacklog(frames.map { Frame.Adpcm(encoder.encode(it)) })
+        Log.i(TAG, "sent ${frames.size * FRAME_MS} ms said before the phone picked up")
     }
 
     /** Plays the answer as it arrives; a flush drops what is queued the moment the user interrupts. */
@@ -461,6 +485,8 @@ class PhoneVoiceLink private constructor(
         private const val MIC_HANGOVER = 8 // 320 ms
         private const val OUTBOX_FRAMES = 25 // 1 s of audio at most waiting for the link
         private const val LEVEL_EVERY_MS = 100L
+        private const val FRAME_MS = 40
+        private const val EARLY_FRAMES = 200 // 8 s said before the phone picks up
 
         @Volatile private var instance: PhoneVoiceLink? = null
 

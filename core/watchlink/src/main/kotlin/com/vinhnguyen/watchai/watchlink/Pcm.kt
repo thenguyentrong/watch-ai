@@ -130,4 +130,13 @@ public class PcmQueue(
         start = 0
         size = 0
     }
+
+    /** Drops the oldest samples until at most [samples] are left, so latency is back to that. */
+    @Synchronized
+    public fun trimTo(samples: Int) {
+        if (size <= samples) return
+        val drop = size - samples
+        start = (start + drop) % maxSamples
+        size = samples
+    }
 }
