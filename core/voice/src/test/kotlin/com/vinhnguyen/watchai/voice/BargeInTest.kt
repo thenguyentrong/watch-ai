@@ -60,8 +60,21 @@ class BargeInTest {
         b.feed(0, 1_000, user = 0.0)
         b.feed(1_000, 1_300, user = 0.3)
         assertThat(b.muted).isTrue()
-        assertThat(b.feed(1_300, 1_400, user = 0.3, speaking = false)).containsExactly(1_300L to Action.UNMUTE)
+        // Stopped means 700 ms without answer audio.
+        assertThat(b.feed(1_300, 2_100, user = 0.3, speaking = false)).containsExactly(2_000L to Action.UNMUTE)
         assertThat(b.muted).isFalse()
+    }
+
+    @Test
+    fun `a pause in the answer is not a new answer`() {
+        val b = BargeIn()
+        b.feed(0, 1_000, user = 0.0)
+        // The server pauses the answer as the user starts talking over it, then goes on.
+        assertThat(b.feed(1_000, 1_100, user = 0.3) + b.feed(1_100, 1_400, user = 0.3, speaking = false)).isNotEmpty()
+        assertThat(b.muted).isTrue()
+        // Resuming doesn't start a new learning window that takes the user's voice for leak.
+        assertThat(b.feed(1_400, 2_000, user = 0.3)).isEmpty()
+        assertThat(b.muted).isTrue()
     }
 
     @Test
@@ -87,5 +100,24 @@ class BargeInTest {
         b.feed(0, 1_000, user = 0.0)
         val actions = b.feed(1_000, 6_000, user = 0.3)
         assertThat(actions).containsExactly(1_200L to Action.MUTE, 4_200L to Action.UNMUTE).inOrder()
+    }
+
+    @Test
+    fun `a real interruption keeps the answer silent until it stops`() {
+        val b = BargeIn()
+        b.feed(0, 1_000, user = 0.0)
+        // "Stop, stop. What time is it?": almost a second of talk over the answer.
+        assertThat(b.feed(1_000, 1_900, user = 0.3)).containsExactly(1_200L to Action.MUTE)
+        // The server takes a few seconds to drop the answer; it stays silent meanwhile.
+        assertThat(b.feed(1_900, 5_000, user = 0.0)).isEmpty()
+        assertThat(b.feed(5_000, 5_800, user = 0.0, speaking = false)).containsExactly(5_700L to Action.UNMUTE)
+    }
+
+    @Test
+    fun `even a real interruption lets go after eight seconds`() {
+        val b = BargeIn()
+        b.feed(0, 1_000, user = 0.0)
+        b.feed(1_000, 1_900, user = 0.3)
+        assertThat(b.feed(1_900, 10_000, user = 0.0)).containsExactly(9_200L to Action.UNMUTE)
     }
 }

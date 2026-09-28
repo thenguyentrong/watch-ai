@@ -343,6 +343,9 @@ class ChatGptRealtimeSession(
     private suspend fun pollLevels(connection: PeerConnection) {
         val timer = TurnTimer()
         val bargeIn = BargeIn()
+        // Loudest mic level over each answer, logged with the leak and the threshold: shows why a talk-over did or didn't mute.
+        var micPeak = 0.0
+        var answering = false
         val start = SystemClock.elapsedRealtime()
         lastActivityAt = start
         while (currentCoroutineContext().isActive) {
@@ -353,14 +356,27 @@ class ChatGptRealtimeSession(
                 is TurnTimer.Event.Interrupt -> note("OpenAI stopped the answer after ${event.latencyMs} ms")
                 null -> Unit
             }
+            if (timer.assistantSpeaking) {
+                micPeak = maxOf(micPeak, user)
+                answering = true
+            } else if (answering) {
+                answering = false
+                val permille = { v: Double -> (v * 1000).toInt() }
+                logger.log(LogEvent.Engine("voice_answer_mic_peak${permille(micPeak)}_leak${permille(bargeIn.echoLevel)}_talk${permille(bargeIn.talkThreshold)}", "gpt-live"))
+                micPeak = 0.0
+            }
             when (bargeIn.sample(now, user, timer.assistantSpeaking)) {
                 BargeIn.Action.MUTE -> {
+                    logger.log(LogEvent.Engine("voice_barge_in_mute", "gpt-live", bargeIn.lastMuteAfterMs))
                     answerMuted = true
                     external?.takeUnless { it.answerOnPhone }?.flushAnswer()
                     _state.update { it.copy(metrics = it.metrics.withInterrupt(bargeIn.lastMuteAfterMs)) }
                 }
 
-                BargeIn.Action.UNMUTE -> answerMuted = false
+                BargeIn.Action.UNMUTE -> {
+                    logger.log(LogEvent.Engine("voice_barge_in_unmute", "gpt-live"))
+                    answerMuted = false
+                }
 
                 null -> Unit
             }

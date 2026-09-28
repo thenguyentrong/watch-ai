@@ -5,6 +5,11 @@ package com.vinhnguyen.watchai.voice
  * detector is sure the user is talking (1-5 s in the 27.09 test), so the phone mutes the answer
  * itself after [talkMs] of speech over it, and plays again when the answer has stopped (the
  * server took the interruption) or when the user went quiet without it stopping (a cough, "mm-hm").
+ * Talking over it for [commitMs] or more is a real interruption: then the answer stays silent
+ * until it stops, however long the server takes (up to [committedMaxMs]); unmuting after a second
+ * of quiet let the old answer come back for a moment before the new one (watch test, 28.09).
+ * An answer only counts as stopped after [answerGapMs] of silence: the server pauses it while the
+ * user talks, and taking that pause for a new answer re-learnt the user's own voice as leak.
  *
  * The mic is echo-cancelled, but some of the answer can still leak in. The first [learnMs] of every
  * answer only measure that leak (nobody interrupts that fast), and the talk threshold sits well
@@ -20,6 +25,9 @@ class BargeIn(
     private val releaseMs: Long = 1_000,
     private val learnMs: Long = 400,
     private val maxMuteMs: Long = 3_000,
+    private val commitMs: Long = 700,
+    private val committedMaxMs: Long = 8_000,
+    private val answerGapMs: Long = 700,
 ) {
     enum class Action { MUTE, UNMUTE }
 
@@ -30,6 +38,10 @@ class BargeIn(
     var lastMuteAfterMs: Long = 0
         private set
 
+    /** How much of the answer the mic hears (learnt at the start of each answer), and the talk level that beats it. */
+    val echoLevel: Double get() = echo
+    val talkThreshold: Double get() = maxOf(talkLevel, minOf(MAX_TALK_LEVEL, echo * ECHO_MARGIN))
+
     private var echo = 0.0
     private var answerSince: Long? = null
     private var talkSince: Long? = null
@@ -38,21 +50,33 @@ class BargeIn(
     private var gaveUp = false
     private var belowSince: Long? = null
     private var loudSamples = 0
+    private var spokeMs = 0L
+    private var lastAt = 0L
+    private var committed = false
+    private var answerQuietSince: Long? = null
 
     fun sample(
         nowMs: Long,
         userLevel: Double,
         assistantSpeaking: Boolean,
     ): Action? {
-        if (!assistantSpeaking) {
-            answerSince = null
-            talkSince = null
-            belowSince = null
-            quietSince = null
-            gaveUp = false
-            if (!muted) return null
-            muted = false
-            return Action.UNMUTE
+        if (assistantSpeaking) {
+            answerQuietSince = null
+        } else {
+            val quiet = answerQuietSince ?: nowMs.also { answerQuietSince = it }
+            if (answerSince == null || nowMs - quiet >= answerGapMs) {
+                answerSince = null
+                answerQuietSince = null
+                talkSince = null
+                belowSince = null
+                quietSince = null
+                gaveUp = false
+                if (!muted) return null
+                muted = false
+                committed = false
+                return Action.UNMUTE
+            }
+            // A pause inside the answer: carry on as if it still played.
         }
         val since =
             answerSince ?: nowMs.also {
@@ -61,9 +85,12 @@ class BargeIn(
             }
         if (nowMs - since < learnMs) {
             echo = maxOf(echo, userLevel)
+            lastAt = nowMs
             return null
         }
-        return if (muted) whileMuted(nowMs, userLevel) else whilePlaying(nowMs, userLevel)
+        val step = nowMs - lastAt
+        lastAt = nowMs
+        return if (muted) whileMuted(nowMs, userLevel, step) else whilePlaying(nowMs, userLevel)
     }
 
     private fun whilePlaying(
@@ -97,6 +124,8 @@ class BargeIn(
         muted = true
         mutedSince = nowMs
         lastMuteAfterMs = nowMs - since
+        spokeMs = lastMuteAfterMs
+        committed = false
         talkSince = null
         quietSince = null
         return Action.MUTE
@@ -105,7 +134,9 @@ class BargeIn(
     private fun whileMuted(
         nowMs: Long,
         userLevel: Double,
+        step: Long,
     ): Action? {
+        if (committed) return if (nowMs - mutedSince >= committedMaxMs) unmute() else null
         if (nowMs - mutedSince >= maxMuteMs) {
             // Still "talking" after this long with the answer going on: most likely leak, not the user.
             // Leave this answer alone; the next one starts with the higher leak level.
@@ -115,6 +146,12 @@ class BargeIn(
         }
         if (userLevel >= maxOf(quietLevel, echo * 1.5)) {
             quietSince = null
+            spokeMs += step
+            return null
+        }
+        // Quiet again after talking this long: not a leak (it stopped) and not an "mm-hm".
+        if (spokeMs >= commitMs) {
+            committed = true
             return null
         }
         val since = quietSince ?: nowMs.also { quietSince = it }
@@ -123,6 +160,7 @@ class BargeIn(
 
     private fun unmute(): Action {
         muted = false
+        committed = false
         quietSince = null
         return Action.UNMUTE
     }
