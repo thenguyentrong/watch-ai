@@ -50,6 +50,10 @@ class WatchAudio(
      * At the start of a call the watch sends what the user said while the phone picked up, in one
      * burst: it all goes in, and plays out in real time before the usual half-second limit applies.
      * Ends once that has played out, or soon after the call started if nothing was said.
+     *
+     * With earbuds as the mic the watch keeps listening until then too: the earbuds only hear
+     * once GPT-Live is connected, about 5 s after "Hey Buddy" (28.09), and what was said to the
+     * watch meanwhile was lost. Once caught up, the watch is told to hand over.
      */
     @Volatile private var catchUp = true
 
@@ -67,7 +71,7 @@ class WatchAudio(
         outbox.offer(routeMessage())
     }
 
-    private fun routeMessage() = Frame.Message(Control("route", speaker = route == Route.WATCH, mic = route != Route.HEADSET))
+    private fun routeMessage() = Frame.Message(Control("route", speaker = route == Route.WATCH, mic = route != Route.HEADSET || catchUp))
 
     private val mic = PcmQueue(WatchLink.SAMPLE_RATE * EARLY_MAX_S)
     private val outbox = Outbox(maxAudio = OUTBOX_FRAMES)
@@ -241,8 +245,11 @@ class WatchAudio(
         val wanted = (frames.toLong() * WatchLink.SAMPLE_RATE / sampleRate).toInt()
         val samples = Pcm.resample(mic.take(wanted), WatchLink.SAMPLE_RATE, sampleRate)
         // The early burst has played out (or none came): from the next buffer on, live audio only,
-        // and with earbuds as the mic WebRTC stops calling here.
-        if (catchUp && mic.available == 0 && (heardEarly || SystemClock.elapsedRealtime() - startedAt > CATCH_UP_WAIT_MS)) catchUp = false
+        // and with earbuds as the mic WebRTC stops calling here and the watch stops listening.
+        if (catchUp && mic.available == 0 && (heardEarly || SystemClock.elapsedRealtime() - startedAt > CATCH_UP_WAIT_MS)) {
+            catchUp = false
+            if (!micOnDevice) outbox.offer(routeMessage())
+        }
         // WebRTC reads the buffer from its start; write there without moving its position.
         val out = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
         for (i in 0 until frames) {
