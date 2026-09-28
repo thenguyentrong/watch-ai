@@ -53,7 +53,7 @@ fun BrainsScreen(vm: BrainsViewModel) {
             is AuthState.SignedIn -> {
                 Item(
                     "Signed in",
-                    subtitle = listOfNotNull(a.emailMasked, a.planType?.let { "$it plan" }).joinToString(" · ").ifEmpty { null },
+                    subtitle = listOfNotNull(a.emailMasked, a.planType?.let { "${planName(it)} plan" }).joinToString(" · ").ifEmpty { null },
                     last = usage?.primaryUsedPercent == null,
                     trailing = { Pill("Sign out", onClick = vm::signOut, filled = false) },
                 )
@@ -129,7 +129,23 @@ fun BrainsScreen(vm: BrainsViewModel) {
             "Use it when available",
             subtitle = state.nanoAvailability?.let { Texts.availability(it) },
             last = true,
-            trailing = { Switch(checked = state.nanoOptIn, onCheckedChange = vm::setNanoOptIn) },
+            trailing = { Switch(checked = state.nanoOptIn, onCheckedChange = vm::setNanoOptIn, colors = switchColors()) },
         )
     }
 }
+
+/** ChatGPT's plan id ("plus", "prolite") as its name. */
+internal fun planName(id: String): String = PLAN_NAMES[id.lowercase()] ?: id.replaceFirstChar { it.uppercase() }
+
+private val PLAN_NAMES =
+    mapOf(
+        "free" to "Free",
+        "go" to "Go",
+        "plus" to "Plus",
+        "pro" to "Pro",
+        "prolite" to "Pro Lite",
+        "team" to "Team",
+        "business" to "Business",
+        "enterprise" to "Enterprise",
+        "edu" to "Edu",
+    )

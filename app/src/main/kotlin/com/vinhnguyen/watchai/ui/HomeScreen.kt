@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -65,6 +66,7 @@ fun HomeScreen(
     onMenu: () -> Unit,
     onChat: () -> Unit,
     onSignIn: () -> Unit,
+    buttons: Boolean = true,
 ) {
     val p = LocalPalette.current
     val state by talk.state.collectAsStateWithLifecycle()
@@ -124,15 +126,23 @@ fun HomeScreen(
                     }
                 }
                 Spacer(Modifier.height(20.dp))
-                Text(label(state), style = MaterialTheme.typography.titleMedium, color = p.text, textAlign = TextAlign.Center)
+                // While talking, the pop-up at the top says what Buddy is doing; here only what to do next.
+                if (!talking) Text(label(state), style = MaterialTheme.typography.titleMedium, color = p.text, textAlign = TextAlign.Center)
                 hint(state, auth)?.let {
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = p.textSecondary, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                    Text(
+                        it,
+                        style = if (talking) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                        color = p.textSecondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = if (talking) 0.dp else 4.dp),
+                    )
                 }
                 Spacer(Modifier.weight(1.25f))
             }
         }
 
-        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        val shown by animateFloatAsState(if (buttons) 1f else 0f, tween(200), label = "buttons")
+        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp).graphicsLayer { alpha = shown }) {
             GlassCircle(backdrop, painterResource(R.drawable.sym_menu), "Menu", onMenu)
             Spacer(Modifier.weight(1f))
             GlassCircle(backdrop, painterResource(R.drawable.sym_chat_bubble), "Chat", onChat)
@@ -183,6 +193,7 @@ private fun hint(
 ): String? = when {
     state.onWatch -> "On your watch · tap to end"
     state.phase == VoicePhase.IDLE && auth is AuthState.SignedOut -> "Sign in with ChatGPT first"
-    state.phase == VoicePhase.LISTENING || state.phase == VoicePhase.SPEAKING -> "Say \"bye\" or tap to finish"
+    state.phase == VoicePhase.CONNECTING -> state.detail
+    state.phase == VoicePhase.LISTENING || state.phase == VoicePhase.THINKING || state.phase == VoicePhase.SPEAKING -> "Say \"bye\" or tap to finish"
     else -> null
 }

@@ -1,5 +1,6 @@
 package com.vinhnguyen.watchai.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
@@ -42,9 +44,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
@@ -93,7 +98,7 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("Let ChatGPT answer when this phone can't", style = MaterialTheme.typography.bodyMedium, color = p.textSecondary, modifier = Modifier.weight(1f))
-                        Switch(checked = false, onCheckedChange = vm::setCloudAllowed)
+                        Switch(checked = false, onCheckedChange = vm::setCloudAllowed, colors = switchColors())
                     }
                 }
             }
@@ -125,10 +130,13 @@ fun ChatRoutePicker(vm: ChatViewModel) {
     val p = LocalPalette.current
     val state by vm.state.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf(false) }
+    var labelWidth by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
     val current = ROUTES.first { it.preference == state.preference }
     Box {
         Row(
             Modifier
+                .onSizeChanged { labelWidth = with(density) { it.width.toDp() } }
                 .clip(CircleShape)
                 .clickable(role = Role.DropdownList, onClickLabel = "Choose who answers") { open = true }
                 .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
@@ -140,14 +148,16 @@ fun ChatRoutePicker(vm: ChatViewModel) {
         DropdownMenu(
             expanded = open,
             onDismissRequest = { open = false },
-            shape = RoundedCornerShape(20.dp),
+            offset = DpOffset((labelWidth - PICKER_WIDTH) / 2, 6.dp),
+            shape = RoundedCornerShape(22.dp),
             containerColor = p.surface,
-            shadowElevation = 12.dp,
+            shadowElevation = 16.dp,
+            border = BorderStroke(0.5.dp, p.separator),
         ) {
             ROUTES.forEach { route ->
                 DropdownMenuItem(
                     text = {
-                        Column(Modifier.padding(vertical = 6.dp)) {
+                        Column(Modifier.padding(vertical = 10.dp)) {
                             Text(route.title, style = MaterialTheme.typography.titleMedium, color = p.text)
                             Text(route.detail, style = MaterialTheme.typography.bodySmall, color = p.textSecondary)
                         }
@@ -159,12 +169,14 @@ fun ChatRoutePicker(vm: ChatViewModel) {
                         vm.setPreference(route.preference)
                         open = false
                     },
-                    modifier = Modifier.widthIn(min = 260.dp),
+                    modifier = Modifier.width(PICKER_WIDTH),
                 )
             }
         }
     }
 }
+
+private val PICKER_WIDTH = 280.dp
 
 private class ChatRoute(
     val preference: RoutePreference,
@@ -174,8 +186,8 @@ private class ChatRoute(
 
 private val ROUTES =
     listOf(
-        ChatRoute(RoutePreference.AUTO, "Auto", "On this phone when it can, else ChatGPT"),
-        ChatRoute(RoutePreference.ON_DEVICE, "On this phone", "Works offline, nothing leaves the phone"),
+        ChatRoute(RoutePreference.AUTO, "Auto", "This phone first, then ChatGPT"),
+        ChatRoute(RoutePreference.ON_DEVICE, "On this phone", "Offline, nothing leaves the phone"),
         ChatRoute(RoutePreference.CHATGPT, "ChatGPT", "On your ChatGPT plan"),
     )
 

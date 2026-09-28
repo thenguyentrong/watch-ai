@@ -1,6 +1,7 @@
 package com.vinhnguyen.watchai.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -145,6 +146,9 @@ fun WatchAiTheme(content: @Composable () -> Unit) {
             scrim = Color.Black,
         )
     CompositionLocalProvider(LocalPalette provides p) {
-        MaterialTheme(colorScheme = scheme, typography = Type, content = content)
+        MaterialTheme(colorScheme = scheme, typography = Type) {
+            // Pages aren't on a Material surface: text with no colour of its own takes the theme's.
+            CompositionLocalProvider(LocalContentColor provides p.text, content = content)
+        }
     }
 }

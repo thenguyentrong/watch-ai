@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,13 +47,13 @@ fun SettingsScreen(
     Group("Buddy's voice", footer = "On the watch and on this phone, from your next conversation.") {
         FlowRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ChatGptRealtimeSession.VOICES.forEach { v ->
-                FilterChip(
-                    selected = voice == v,
+                Pill(
+                    v.replaceFirstChar { it.uppercase() },
                     onClick = {
                         settings.voice = v
                         voice = v
                     },
-                    label = { Text(v.replaceFirstChar { it.uppercase() }) },
+                    filled = voice == v,
                 )
             }
         }

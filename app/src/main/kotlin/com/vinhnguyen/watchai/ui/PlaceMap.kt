@@ -3,7 +3,6 @@ package com.vinhnguyen.watchai.ui
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.Paint
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -47,16 +46,15 @@ object PlaceMap {
     private val json = Json { ignoreUnknownKeys = true }
     private val cache = LruCache<String, ImageBitmap>(8)
 
-    /** A [width] by [height] map around [place] with a dot on it, or null if it can't be found. */
+    /** A [width] by [height] map centred on [place], or null if it can't be found. */
     suspend fun render(
         place: String,
         width: Int,
         height: Int,
-        dot: Int,
     ): ImageBitmap? = cache.get(place) ?: withContext(Dispatchers.IO) {
         runCatching {
             val (lat, lon) = find(place) ?: return@runCatching null
-            draw(lat, lon, width, height, dot)
+            draw(lat, lon, width, height)
         }.getOrNull()?.also { cache.put(place, it) }
     }
 
@@ -83,7 +81,6 @@ object PlaceMap {
         lon: Double,
         width: Int,
         height: Int,
-        dot: Int,
     ): ImageBitmap {
         val n = 1 shl ZOOM
         val x = (lon + 180) / 360 * n * TILE
@@ -100,11 +97,6 @@ object PlaceMap {
                 canvas.drawBitmap(tile, (tx * TILE - left).toFloat(), (ty * TILE - top).toFloat(), null)
             }
         }
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        paint.color = android.graphics.Color.WHITE
-        canvas.drawCircle(width / 2f, height / 2f, height * 0.075f, paint)
-        paint.color = dot
-        canvas.drawCircle(width / 2f, height / 2f, height * 0.05f, paint)
         return out.asImageBitmap()
     }
 

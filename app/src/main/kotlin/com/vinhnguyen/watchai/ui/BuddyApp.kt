@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -73,6 +74,12 @@ enum class Page(
     BUDDIES("More Buddies", forTesting = true),
 }
 
+/** Test builds: a screen to show, from `am start ... --es page settings` (home, menu or a [Page]). */
+data class TestPage(
+    val name: String,
+    val at: Long = System.nanoTime(),
+)
+
 /** The screens the menu opens. */
 class Pages(
     val chat: ChatViewModel,
@@ -91,6 +98,7 @@ fun BuddyApp(
     graph: AppGraph,
     talk: TalkViewModel,
     pages: Pages,
+    testPage: TestPage? = null,
 ) {
     var page by rememberSaveable { mutableStateOf<Page?>(null) }
     var menu by rememberSaveable { mutableStateOf(false) }
@@ -106,13 +114,39 @@ fun BuddyApp(
         menu = false
         if (p == Page.AI) pages.brains.refresh()
     }
+    LaunchedEffect(testPage) {
+        when (val name = testPage?.name) {
+            null -> Unit
+
+            "home" -> {
+                page = null
+                menu = false
+            }
+
+            "menu" -> {
+                page = null
+                menu = true
+            }
+
+            else -> Page.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let(open)
+        }
+    }
     BackHandler(menu) { menu = false }
     BackHandler(!menu && page != null) { page = null }
     SystemBars(lightIcons = isSystemInDarkTheme())
 
     Box(Modifier.fillMaxSize()) {
         when (val p = page) {
-            null -> HomeScreen(talk, genes, backdrop, onMenu = { menu = true }, onChat = { open(Page.CHAT) }, onSignIn = { open(Page.AI) })
+            null ->
+                HomeScreen(
+                    talk,
+                    genes,
+                    backdrop,
+                    onMenu = { menu = true },
+                    onChat = { open(Page.CHAT) },
+                    onSignIn = { open(Page.AI) },
+                    buttons = !menu && island !is Island.Showing,
+                )
 
             Page.CHAT ->
                 Page(

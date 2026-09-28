@@ -30,6 +30,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -164,6 +166,20 @@ fun Item(
     }
 }
 
+/** Switches in the app's colours: the thumb stays visible when off, on a dark page too. */
+@Composable
+fun switchColors(): SwitchColors {
+    val p = LocalPalette.current
+    return SwitchDefaults.colors(
+        checkedThumbColor = p.background,
+        checkedTrackColor = p.text,
+        checkedBorderColor = p.text,
+        uncheckedThumbColor = p.textTertiary,
+        uncheckedTrackColor = p.surfaceHigh,
+        uncheckedBorderColor = p.textTertiary,
+    )
+}
+
 /** A small rounded button: [filled] for the one thing to do, otherwise quiet. */
 @Composable
 fun Pill(
@@ -255,7 +271,7 @@ private fun BoxScope.EdgeFade(
             .fillMaxWidth()
             .height(height)
             .graphicsLayer { this.alpha = alpha }
-            .background(Brush.verticalGradient(0f to p.background, 0.55f to p.background.copy(alpha = 0.9f), 1f to p.background.copy(alpha = 0f))),
+            .background(Brush.verticalGradient(0f to p.background, 0.62f to p.background.copy(alpha = 0.96f), 1f to p.background.copy(alpha = 0f))),
     )
 }
 

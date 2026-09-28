@@ -26,12 +26,15 @@ import com.vinhnguyen.watchai.ui.ChatViewModel
 import com.vinhnguyen.watchai.ui.NoticeScreen
 import com.vinhnguyen.watchai.ui.Pages
 import com.vinhnguyen.watchai.ui.TalkViewModel
+import com.vinhnguyen.watchai.ui.TestPage
 import com.vinhnguyen.watchai.ui.VoiceLabViewModel
 import com.vinhnguyen.watchai.ui.WatchAiTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val testPage = mutableStateOf<TestPage?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -66,10 +69,10 @@ class MainActivity : ComponentActivity() {
                         benchmark = if (BuildConfig.DEBUG) viewModel<BenchmarkViewModel>(factory = factory) else null,
                         voiceLab = if (BuildConfig.DEBUG) viewModel<VoiceLabViewModel>(factory = factory) else null,
                     )
-                BuddyApp(graph, talk = viewModel(factory = factory), pages = pages)
+                BuddyApp(graph, talk = viewModel(factory = factory), pages = pages, testPage = testPage.value)
             }
         }
-        if (BuildConfig.DEBUG) showTestCard(intent, afterMillis = 1_500)
+        if (BuildConfig.DEBUG && savedInstanceState == null) showTestCard(intent, afterMillis = 1_500)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -79,12 +82,14 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Test builds only: shows a made-up pop-up, to look at every kind without sending anything, e.g.
-     * `adb shell am start -n com.vinhnguyen.watchai/.MainActivity --es card place`.
+     * `adb shell am start -n com.vinhnguyen.watchai/.MainActivity --es card place`, or opens a screen
+     * with `--es page settings` (home, menu, chat, abilities, ai, settings, voice_lab, buddies).
      */
     private fun showTestCard(
         intent: Intent,
         afterMillis: Long,
     ) {
+        intent.getStringExtra("page")?.let { testPage.value = TestPage(it) }
         val sms = runCatching { Telephony.Sms.getDefaultSmsPackage(this) }.getOrNull() ?: packageName
         val card =
             when (intent.getStringExtra("card")) {

@@ -32,7 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -85,18 +84,19 @@ fun BuddyScreen(
     }
 }
 
-/** One Buddy on a black disc; each tap plays the next animation. */
+/** One Buddy on a disc; each tap plays the next animation. */
 @Composable
 private fun Stage(
     genes: Genes,
     modifier: Modifier,
 ) {
+    val p = LocalPalette.current
     var next by remember { mutableIntStateOf(0) }
     val mood = MOODS[next % MOODS.size]
     Box(
         modifier
             .clip(CircleShape)
-            .background(Color.Black)
+            .background(p.surface)
             .clickable(onClickLabel = "Play the next animation", role = Role.Button) { next++ },
     ) {
         BuddyView(
@@ -105,7 +105,8 @@ private fun Stage(
             reaction = mood?.let { Reaction(it, 0.8f) },
             reactionId = next,
             level = 0f,
-            paper = Color.Black,
+            paper = p.surface,
+            eyes = p.eyes,
             modifier = Modifier.fillMaxSize().padding(8.dp),
         )
     }

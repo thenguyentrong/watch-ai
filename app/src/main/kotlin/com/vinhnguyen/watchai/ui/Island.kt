@@ -39,9 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -225,20 +226,24 @@ private fun Map(
     val density = LocalDensity.current
     val width = with(density) { 480.dp.roundToPx() }
     val height = with(density) { 200.dp.roundToPx() }
-    val map by produceState<ImageBitmap?>(null, place) { value = PlaceMap.render(place, width, height, accent.toArgb()) }
+    val map by produceState<ImageBitmap?>(null, place) { value = PlaceMap.render(place, width, height) }
     val links = LocalUriHandler.current
     Box(Modifier.padding(top = 12.dp).fillMaxWidth().aspectRatio(2.4f).clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.08f))) {
-        map?.let { Image(it, contentDescription = "Map of $place", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(2.4f)) }
+        map?.let {
+            Image(it, contentDescription = "Map of $place", contentScale = ContentScale.Crop, colorFilter = NightMap, modifier = Modifier.fillMaxWidth().aspectRatio(2.4f))
+            // The place: a dot in Buddy's colour with a white ring, like a map pin seen from above.
+            Box(Modifier.align(Alignment.Center).size(18.dp).clip(CircleShape).background(Color.White).padding(3.dp).clip(CircleShape).background(accent))
+        }
         Text(
             "© OpenStreetMap",
             style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF3A3A3F),
+            color = OnInkQuiet,
             modifier =
             Modifier
                 .align(Alignment.BottomEnd)
                 .padding(6.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Color.White.copy(alpha = 0.7f))
+                .background(Ink.copy(alpha = 0.6f))
                 .clickable(role = Role.Button, onClickLabel = "Map licence") { links.openUri("https://www.openstreetmap.org/copyright") }
                 .padding(horizontal = 5.dp, vertical = 1.dp),
         )
@@ -298,4 +303,22 @@ private val SYMBOLS =
         Symbol.PHONE to R.drawable.sym_ring_volume,
         Symbol.CHECK to R.drawable.sym_check_circle,
         Symbol.CANCEL to R.drawable.sym_cancel,
+    )
+
+/**
+ * OpenStreetMap's light map made dark for the island: brightness inverted, then hues turned half
+ * way round so parks stay green and water blue, a little muted.
+ */
+private val NightMap =
+    ColorFilter.colorMatrix(
+        ColorMatrix().apply {
+            // Invert.
+            val invert = ColorMatrix(floatArrayOf(-1f, 0f, 0f, 0f, 255f, 0f, -1f, 0f, 0f, 255f, 0f, 0f, -1f, 0f, 255f, 0f, 0f, 0f, 1f, 0f))
+            // Hue rotation by 180 degrees (the usual luminance-preserving matrix).
+            val hue = ColorMatrix(floatArrayOf(-0.574f, 1.43f, 0.144f, 0f, 0f, 0.426f, 0.43f, 0.144f, 0f, 0f, 0.426f, 1.43f, -0.856f, 0f, 0f, 0f, 0f, 0f, 1f, 0f))
+            val calm = ColorMatrix().apply { setToSaturation(0.7f) }
+            set(invert)
+            timesAssign(hue)
+            timesAssign(calm)
+        },
     )
