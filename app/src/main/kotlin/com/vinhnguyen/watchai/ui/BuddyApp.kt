@@ -72,6 +72,7 @@ enum class Page(
     ACTIVITY("What Buddy did"),
     AI("Your AI"),
     SETTINGS("Settings"),
+    SAFETY("See what ChatGPT gets"),
     VOICE_LAB("Voice lab", forTesting = true),
     BUDDIES("More Buddies", forTesting = true),
 }
@@ -134,7 +135,7 @@ fun BuddyApp(
         }
     }
     BackHandler(menu) { menu = false }
-    BackHandler(!menu && page != null) { page = null }
+    BackHandler(!menu && page != null) { page = if (page == Page.SAFETY) Page.SETTINGS else null }
     SystemBars(lightIcons = isSystemInDarkTheme())
 
     Box(Modifier.fillMaxSize()) {
@@ -169,8 +170,16 @@ fun BuddyApp(
             Page.SETTINGS ->
                 Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) {
                     val offlineReady by produceState(false) { value = graph.gemma.availability() == Availability.Ready }
-                    SettingsScreen(graph.settings, onDeleteEverything = graph::deleteEverything, benchmark = pages.benchmark, offlineReady = offlineReady)
+                    SettingsScreen(
+                        graph.settings,
+                        onDeleteEverything = graph::deleteEverything,
+                        benchmark = pages.benchmark,
+                        offlineReady = offlineReady,
+                        onSafetyCheck = { open(Page.SAFETY) },
+                    )
                 }
+
+            Page.SAFETY -> Page(p.title, onBack = { page = Page.SETTINGS }, backdrop = pageBackdrop) { SafetyCheckScreen(graph) }
 
             Page.VOICE_LAB ->
                 Page(p.title, onBack = { page = null }, scrolls = false, backdrop = pageBackdrop) { top ->

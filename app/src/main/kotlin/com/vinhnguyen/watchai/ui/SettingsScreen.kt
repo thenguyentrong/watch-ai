@@ -38,6 +38,7 @@ fun SettingsScreen(
     onDeleteEverything: suspend () -> Unit,
     benchmark: BenchmarkViewModel?,
     offlineReady: Boolean,
+    onSafetyCheck: () -> Unit,
 ) {
     val p = LocalPalette.current
     var voice by remember { mutableStateOf(settings.voice) }
@@ -88,6 +89,11 @@ fun SettingsScreen(
                     colors = switchColors(),
                 )
             },
+        )
+        Item(
+            "See what ChatGPT gets",
+            subtitle = "Try a tricky message and see what's left of it",
+            onClick = onSafetyCheck,
         )
         Item(
             if (deleted) "Everything was deleted" else "Delete everything",
