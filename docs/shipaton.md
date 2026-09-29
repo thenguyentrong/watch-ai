@@ -1,7 +1,13 @@
 # Buddy
 
-**Hands-free help on the watch you already wear. Buddy gets things done on your phone with the AI
-plan you already pay for, and what's private stays on your phone.**
+**A private, hands-free AI agent on the smartwatch you already wear.** It doesn't just answer, it acts
+on your phone: texts, calls, messages, timers, calendar. It runs on the AI plan you already pay for,
+and your private data never leaves your phone.
+
+> For the Devpost form. **Tagline:** A private AI agent for the watch you already own: hands-free,
+> acts on your phone, runs on your own ChatGPT plan, keeps your data on-device.
+> **Built with:** kotlin, jetpack-compose, android, wear-os, revenuecat, openai, chatgpt, webrtc,
+> gemma, litert, on-device-ai, sherpa-onnx, tink
 
 ## The problem
 
@@ -9,17 +15,17 @@ Most of what I want from an assistant is small. Tell someone I'm late. Set a tim
 hands. Hear what a message says while I'm on the bike. Each time it's the same: take the phone out,
 unlock it, find the app, type.
 
-AI agents can do this kind of thing by now, but they live on the laptop. The gadgets that bring them
-onto your body (pins, pendants, little characters you clip on) are one more thing to buy, charge and
-carry, often with one more subscription.
+AI agents can do this kind of thing by now, but they're stuck on the laptop. The AI wearables that
+bring them onto your body (pins, pendants, little characters you clip on) are one more gadget to buy,
+charge and carry, often with one more subscription.
 
 And an assistant that reads your messages usually sends them to a server, where every message it
 reads can try to talk the AI into doing something else.
 
 ## What Buddy does
 
-Buddy lives on the watch and earbuds people already have. Raise your wrist and say "Hey Buddy", or
-tap the watch, and say what you need. The phone stays in your pocket.
+Buddy is a voice-first AI agent that lives on the watch and earbuds people already have. Raise your
+wrist and say "Hey Buddy", or tap the watch, and say what you need. The phone stays in your pocket.
 
 - "Text Anna I'm ten minutes late." Buddy reads it back and sends it when you say yes.
 - "Any new messages?" Your phone reads them to you, in its own voice.
@@ -34,20 +40,20 @@ Buddy is different. Its shape, colour and face come from your account, so no one
 
 ## Why it's different
 
-- **No new device.** Your watch is the microphone, speaker and face. With earbuds in, they take over
+- **No new hardware.** Your watch is the microphone, speaker and face. With earbuds in, they take over
   the sound.
-- **Your own AI plan.** Sign in with ChatGPT and Buddy runs on your Plus or Pro plan. No API keys, and
+- **Bring your own AI.** Sign in with ChatGPT and Buddy runs on your Plus or Pro plan. No API keys, and
   no servers of mine: your requests go from your phone to OpenAI, under your own account.
-- **Private things stay on the phone.** ChatGPT hears what you ask and decides what to do. Reading
-  your messages, notes and calendar is done by an AI model that runs on the phone, and the phone says
-  the answer in its own voice. ChatGPT only learns that the phone told you. While the phone speaks,
+- **Privacy-first, with on-device AI.** ChatGPT hears what you ask and decides what to do. Reading your
+  messages, notes and calendar is done by an AI model that runs on the phone, and the phone says the
+  answer in its own voice. ChatGPT only learns that the phone told you. While the phone speaks,
   ChatGPT's microphone hears silence, so nothing slips back in.
-- **It can't be talked into things.** Every action goes through one gate written in code, not in a
-  prompt. Texts and calls go out only after your yes in a later turn, only while you're there (the
+- **Agent safety by design.** Prompt injection is the weak spot of AI agents: any message they read can
+  try to give them orders. So every action goes through one gate written in code, not in a prompt. Texts and calls go out only after your yes in a later turn, only while you're there (the
   watch unlocked on your wrist, or the phone unlocked), and at most ten an hour. A number or link in a
   message can never become a recipient. Banking and password apps are never read, one-time codes never
   leave the phone, and "stop" stops everything.
-- **You can check all of it.** "What Buddy did" lists every action. "Messages Buddy has" shows exactly
+- **Transparent.** "What Buddy did" lists every action. "Messages Buddy has" shows exactly
   what it keeps from your notifications. "See what ChatGPT gets" lets you paste any tricky message and
   shows what would leave the phone.
 

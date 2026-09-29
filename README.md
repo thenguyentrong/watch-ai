@@ -1,7 +1,8 @@
 # Buddy
 
-Hands-free help on the watch you already wear. Buddy gets things done on your phone with the AI
-plan you already pay for, and what's private stays on your phone.
+A private, hands-free AI agent on the smartwatch you already wear. It acts on your phone (texts,
+calls, messages, timers, calendar), runs on the AI plan you already pay for, and keeps your private
+data on-device.
 
 Made for the RevenueCat Shipaton 2026. The longer story: [docs/shipaton.md](docs/shipaton.md).
 
@@ -15,8 +16,8 @@ only want one small thing done, right now, with your hands full.
 New AI gadgets try to fix that, a pin or a charm with a little character on it. But that's another
 device to buy, charge and carry, usually with its own subscription. Expensive, and not sustainable.
 
-Most people already wear a smartwatch, and earbuds or headphones for a big part of the day. So Buddy
-uses those. Raise your wrist and say "Hey Buddy", or tap the watch, and say what you need. Buddy
+Most people already wear a smartwatch, and earbuds or headphones for a big part of the day. So Buddy,
+a voice-first AI agent, uses those. Raise your wrist and say "Hey Buddy", or tap the watch, and say what you need. Buddy
 answers on the watch or in your ear, and does it on your phone. A small character on the watch shows
 what it's doing. It runs on your existing AI subscription: no new device, no new plan, no API keys.
 
