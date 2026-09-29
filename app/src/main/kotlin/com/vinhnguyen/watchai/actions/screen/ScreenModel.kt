@@ -89,6 +89,25 @@ object ScreenModel {
         app: String,
         node: ScreenNode,
     ): String? {
+        val shown = shown(node) ?: return null
+        val what = if (node.inList) "an entry in a list" else "a ${node.kind}"
+        return "$TAP_TASK\nNow:\nIn \"$app\", $what $shown:"
+    }
+
+    /**
+     * The same for pressing Enter in a text field: in a search or address field it only goes there, in a
+     * message field it can send. Null when the field has no words or name to judge by.
+     */
+    fun enterQuestion(
+        app: String,
+        node: ScreenNode,
+    ): String? {
+        val shown = shown(node) ?: return null
+        return "$TAP_TASK\nNow:\nIn \"$app\", pressing Enter in a text field $shown:"
+    }
+
+    /** "that says "…", named "…" by the app", or null when a control has neither. */
+    private fun shown(node: ScreenNode): String? {
         val words =
             listOf(node.description, node.text, node.hint)
                 .map { it.trim() }
@@ -98,20 +117,20 @@ object ScreenModel {
                 .take(TAP_WORDS_MAX)
         val name = node.viewId.substringAfterLast('/')
         if (words.isEmpty() && name.isEmpty()) return null
-        val what = if (node.inList) "an entry in a list" else "a ${node.kind}"
-        val shown = listOfNotNull(words.takeIf { it.isNotEmpty() }?.let { "that says \"$it\"" }, name.takeIf { it.isNotEmpty() }?.let { "named \"$it\" by the app" })
-        return "$TAP_TASK\nNow:\nIn \"$app\", $what ${shown.joinToString(", ")}:"
+        return listOfNotNull(words.takeIf { it.isNotEmpty() }?.let { "that says \"$it\"" }, name.takeIf { it.isNotEmpty() }?.let { "named \"$it\" by the app" })
+            .joinToString(", ")
     }
 
-    /** The phone's model's answers to [tapQuestion]. */
+    /** The phone's model's answers to [tapQuestion] and [enterQuestion]. */
     const val MOVES = "moves"
     const val DOES = "does"
     val TAP_CHOICES = listOf(MOVES, DOES)
 
     private const val TAP_TASK =
-        "The user's assistant is about to tap a control in a phone app. Say whether the tap only moves around the app (opens, " +
-            "searches, scrolls, goes back, switches a tab, shows more) or does something (sends, posts, shares, pays, buys, orders, " +
-            "books, deletes, confirms, accepts, calls, joins, signs up or out, changes the account).\n" +
+        "The user's assistant is about to tap a control, or press Enter in a text field, in a phone app. Say whether that only " +
+            "moves around the app (opens, searches, goes to a web address, scrolls, goes back, switches a tab, shows more) or does " +
+            "something (sends, posts, shares, pays, buys, orders, books, deletes, confirms, accepts, calls, joins, signs up or out, " +
+            "changes the account).\n" +
             "Examples:\n" +
             "In \"Chat\", a button that says \"Search\": moves\n" +
             "In \"Chat\", a button that says \"Send\": does\n" +
@@ -120,7 +139,9 @@ object ScreenModel {
             "In \"Photos\", a button that says \"Delete\": does\n" +
             "In \"Mail\", a button that says \"Back\": moves\n" +
             "In \"Social\", a button that says \"Join\": does\n" +
-            "In \"Mail\", an entry in a list that says \"Your parcel is on its way\": moves"
+            "In \"Mail\", an entry in a list that says \"Your parcel is on its way\": moves\n" +
+            "In \"Browser\", pressing Enter in a text field that says \"Search or type web address\": moves\n" +
+            "In \"Chat\", pressing Enter in a text field that says \"Message\": does"
 
     private const val LABEL_MAX = 30
     private const val LABEL_WORDS = 4

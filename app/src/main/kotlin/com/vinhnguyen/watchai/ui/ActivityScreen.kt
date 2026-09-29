@@ -73,6 +73,7 @@ private fun describe(e: ActionLogStore.Item): Pair<String, Int> = when (e.tool) 
     PhoneActions.DEVICE_STATUS -> "Checked the battery" to R.drawable.sym_bolt
     PhoneShortcuts.OPEN_APP -> "Opened an app" to R.drawable.sym_bolt
     PhoneShortcuts.TURN_ON_APP -> "Turned an app on for Buddy" to R.drawable.sym_lock
+    PhoneShortcuts.TURN_OFF_APP -> "Turned an app off for Buddy" to R.drawable.sym_lock
     PhoneShortcuts.NAVIGATE -> "Opened directions" to R.drawable.sym_directions
     PhoneShortcuts.FLASHLIGHT -> "Flashlight" to R.drawable.sym_flashlight_on
     ReachActions.SEND_TEXT -> "A text" to R.drawable.sym_chat_bubble

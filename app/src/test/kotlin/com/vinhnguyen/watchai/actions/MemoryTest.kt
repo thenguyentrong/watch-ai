@@ -138,6 +138,20 @@ class MemoryTest {
     }
 
     @Test
+    fun `passwords, codes and numbers are never kept, whatever the model says`() = runBlocking {
+        var clock = 1_000_000L
+        val turns = UserTurns(now = { clock })
+        val m = memory()
+        val tools = MemoryActions(m, turns, zone = { ZoneId.of("UTC") }, clock = { clock })
+        turns.heard()
+        for (secret in listOf("The user's wifi password is Sonne123", "My locker code is 4829", "My card is 4111 1111 1111 1111")) {
+            assertThat(tools.run(MemoryActions.REMEMBER, """{"text":"$secret"}""")).startsWith("error: nothing was kept")
+        }
+        assertThat(tools.run(MemoryActions.REMEMBER, """{"text":"My son was born in 2019"}""")).startsWith("ok")
+        assertThat(m.load().facts.single().text).isEqualTo("My son was born in 2019")
+    }
+
+    @Test
     fun `a day as the end of a range means all of it`() = runBlocking {
         val m = memory()
         val tools = MemoryActions(m, UserTurns(), zone = { ZoneId.of("UTC") })

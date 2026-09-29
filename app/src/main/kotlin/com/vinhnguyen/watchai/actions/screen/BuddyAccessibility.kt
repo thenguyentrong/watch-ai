@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -30,9 +31,13 @@ class BuddyAccessibility : AccessibilityService() {
         super.onDestroy()
     }
 
-    /** The app in front and what's on its screen, or null when there's no window to read. */
+    /**
+     * The app in front and what's on its screen, or null when there's no window to read. The app's own
+     * window, not whatever has focus: a notification sliding in, the status bar or the keyboard would
+     * otherwise stand in for it (29.09, right after opening Chrome).
+     */
     fun look(): Screen? {
-        val root = rootInActiveWindow ?: return null
+        val root = appWindow() ?: rootInActiveWindow ?: return null
         val nodes = mutableListOf<ScreenNode>()
         val handles = mutableMapOf<Int, AccessibilityNodeInfo>()
         fun walk(
@@ -112,6 +117,9 @@ class BuddyAccessibility : AccessibilityService() {
         return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
     }
 
+    /** The keyboard's Enter in [node]: search, go, or in some apps send. */
+    fun enter(node: AccessibilityNodeInfo): Boolean = node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+
     fun scroll(
         node: AccessibilityNodeInfo?,
         down: Boolean,
@@ -121,6 +129,13 @@ class BuddyAccessibility : AccessibilityService() {
     }
 
     fun back(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
+
+    /** The top app window's content: the active one if it's an app's, else the top-most app window. */
+    private fun appWindow(): AccessibilityNodeInfo? {
+        val apps = runCatching { windows }.getOrNull().orEmpty().filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+        val top = apps.firstOrNull { it.isActive } ?: apps.firstOrNull { it.isFocused } ?: apps.firstOrNull()
+        return top?.root
+    }
 
     private fun inWebPage(node: AccessibilityNodeInfo): Boolean {
         var at: AccessibilityNodeInfo? = node

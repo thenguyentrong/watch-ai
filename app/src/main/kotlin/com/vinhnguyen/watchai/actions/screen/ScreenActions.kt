@@ -84,7 +84,17 @@ class ScreenActions(
                 val node = screen.nodes.firstOrNull { it.id == id && it.editable } ?: return done(name, "invalid", "error: [$id] isn't a text field")
                 if (node.password) return done(name, "refused", "error: Buddy never types into password fields")
                 val handle = screen.handles[id] ?: return done(name, "invalid", "error: [$id] is gone; look at the screen again")
-                if (hands.type(handle, text)) done(name, "ok", settle("ok: typed it into [$id] in $app (nothing is sent by typing)")) else done(name, "failed", "error: couldn't type there")
+                if (!hands.type(handle, text)) return done(name, "failed", "error: couldn't type there")
+                if (ActionArgs.bool(args, "submit") != true) return done(name, "ok", settle("ok: typed it into [$id] in $app (nothing is sent by typing)"))
+                // Enter can search or go to a web address, but in a message field it can send: judged like a tap.
+                if (doesSomething(ScreenModel.enterQuestion(app, node))) {
+                    val field = ScreenModel.label(node) ?: "text"
+                    done(name, "proposed", pending.propose("Press Enter in the \"$field\" field in $app, after typing \"$text\".") { if (hands.enter(handle)) settle("ok: pressed Enter") else "error: Enter didn't work there" })
+                } else if (hands.enter(handle)) {
+                    done(name, "ok", settle("ok: typed it into [$id] and pressed Enter in $app; look at the screen again to see what changed"))
+                } else {
+                    done(name, "failed", "error: typed it, but Enter didn't work there; look for a button to tap instead")
+                }
             }
 
             SCROLL -> {
@@ -120,7 +130,12 @@ class ScreenActions(
         node: ScreenNode,
     ): Boolean {
         if (node.editable || node.kind == "tab") return false
-        val question = ScreenModel.tapQuestion(app, node) ?: return true
+        return doesSomething(ScreenModel.tapQuestion(app, node))
+    }
+
+    /** The phone's model's verdict on a tap or an Enter; no question (nothing to judge by) or no answer counts as doing something. */
+    private suspend fun doesSomething(question: String?): Boolean {
+        question ?: return true
         synchronized(verdicts) { verdicts[question] }?.let { return it }
         val kind = judge?.pick(question, ScreenModel.TAP_CHOICES) ?: return true
         val risky = kind != ScreenModel.MOVES
@@ -221,8 +236,10 @@ class ScreenActions(
                 ),
                 ToolSpec(
                     TYPE,
-                    "Type text into a text field by its id, e.g. a name into a search box. Typing never sends anything.",
-                    """{"type":"object","properties":{"id":{"type":"integer"},"text":{"type":"string"}},"required":["id","text"],"additionalProperties":false}""",
+                    "Type text into a text field by its id, e.g. a name into a search box. Typing never sends anything. With submit, " +
+                        "Enter is pressed after it: to search or go to a web address. In a message field Enter may send, so there it reads " +
+                        "back and waits for the user's yes.",
+                    """{"type":"object","properties":{"id":{"type":"integer"},"text":{"type":"string"},"submit":{"type":"boolean","description":"Press Enter after typing."}},"required":["id","text"],"additionalProperties":false}""",
                 ),
                 ToolSpec(
                     SCROLL,

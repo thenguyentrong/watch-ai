@@ -140,10 +140,14 @@ public object Redactor {
      * A word of letters and digits, like most passwords ("Sonne123", "hunter2!"), found by its shape
      * rather than by a word like "password" before it, so it works whatever the language. Latin
      * letters only: passwords are typed on a keyboard, and scripts without spaces (Chinese, Thai)
-     * would otherwise turn a whole sentence into one "word". Dates, versions and links have their own rules.
+     * would otherwise turn a whole sentence into one "word". It may stand in quotes or brackets and end a
+     * sentence ("is Sonne123."); a dot or a colon inside it makes it a version, a file or a time instead.
      */
     private val SECRET =
-        Regex("""(?<![\x21-\x7E])(?=[\x21-\x7E]*[A-Za-z])(?=[\x21-\x7E]*[0-9])[\x21-\x2C\x30-\x39\x3B-\x7E]{6,}(?![\x21-\x7E])""")
+        Regex(
+            """(?:(?<=[("'])|(?<![\x21-\x7E]))(?=[\x21-\x7E]*[A-Za-z])(?=[\x21-\x7E]*[0-9])[\x21-\x2C\x30-\x39\x3B-\x7E]{6,}""" +
+                """(?=[.,:;!?]*(?![\x21-\x7E]))""",
+        )
 
     private val SHAPED_CODES =
         listOf(

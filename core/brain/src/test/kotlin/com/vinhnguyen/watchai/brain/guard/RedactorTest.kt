@@ -60,6 +60,15 @@ class RedactorTest {
         assertThat(clean("the pin is on the map").text).isEqualTo("the pin is on the map")
     }
 
+    /** As people write them: at the end of a sentence, in quotes or brackets (the wifi password ChatGPT once tried to keep). */
+    @Test
+    fun `passwords are hidden with punctuation around them`() {
+        assertThat(clean("User's Wi-Fi password is Sonne123.").text).isEqualTo("User's Wi-Fi password is [hidden].")
+        assertThat(clean("the code for the door is \"Sonne123\", ok?").text).doesNotContain("Sonne123")
+        assertThat(clean("(hunter22) is the new one!").text).doesNotContain("hunter22")
+        assertThat(clean("open file2.txt at 10:30, version 2.0.1").text).isEqualTo("open file2.txt at 10:30, version 2.0.1")
+    }
+
     @Test
     fun `words with digits that aren't secrets stay`() {
         val text = "COVID-19 rules, version 2.0.1, meet at 5pm on the 2nd, 4K video, 明天下午3点在2号门见"

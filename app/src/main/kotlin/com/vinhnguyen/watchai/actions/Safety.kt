@@ -28,6 +28,8 @@ object Safety {
             PhoneShortcuts.OPEN_APP to Level.LOCAL,
             // Only reads back; the app is turned on with the yes below.
             PhoneShortcuts.TURN_ON_APP to Level.LOCAL,
+            // Only takes access away.
+            PhoneShortcuts.TURN_OFF_APP to Level.LOCAL,
             PhoneShortcuts.NAVIGATE to Level.LOCAL,
             PhoneShortcuts.FLASHLIGHT to Level.LOCAL,
             // Using an app: looking at its controls, tapping, typing and scrolling. A tap that sends, pays,

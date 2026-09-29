@@ -13,6 +13,7 @@ import com.vinhnguyen.watchai.brain.BrainLogger
 import com.vinhnguyen.watchai.brain.LogEvent
 import com.vinhnguyen.watchai.brain.ToolSpec
 import com.vinhnguyen.watchai.brain.Toolbox
+import kotlinx.coroutines.delay
 
 /**
  * Things that show on the phone: open an app, directions in Maps, and the flashlight. Opening
@@ -43,6 +44,7 @@ class PhoneShortcuts(
             when (name) {
                 OPEN_APP -> ActionArgs.text(args, "name", NAME_MAX)?.let { openApp(it) } ?: done(name, "invalid", "error: say which app")
                 TURN_ON_APP -> ActionArgs.text(args, "name", NAME_MAX)?.let { turnOn(it) } ?: done(name, "invalid", "error: say which app")
+                TURN_OFF_APP -> ActionArgs.text(args, "name", NAME_MAX)?.let { turnOff(it) } ?: done(name, "invalid", "error: say which app")
                 NAVIGATE -> ActionArgs.text(args, "place", PLACE_MAX)?.let { navigate(it, ActionArgs.choice(args, "mode", MODES.keys)) } ?: done(name, "invalid", "error: say where to")
                 FLASHLIGHT -> ActionArgs.bool(args, "on")?.let { flashlight(it) } ?: done(name, "invalid", "error: on must be true or false")
                 else -> done(name, "unknown", "error: there is no action called $name")
@@ -71,6 +73,15 @@ class PhoneShortcuts(
         return limits.whenOff(pkg, pending, cards) { "ok: $label is on for Buddy now; go on with what the user asked" }.let { done(TURN_ON_APP, outcome(it), it) }
     }
 
+    /** Off right away, no yes needed: it only takes Buddy's access away. */
+    private fun turnOff(said: String): String {
+        val (pkg, label) = find(said).let { found -> found.singleOrNull() ?: return done(TURN_OFF_APP, "invalid", unclear(said, found)) }
+        val limits = limits ?: return done(TURN_OFF_APP, "failed", "error: apps can't be turned off here")
+        if (!limits.allowed(pkg)) return done(TURN_OFF_APP, "ok", "ok: $label is already off for Buddy")
+        limits.choose(pkg, false)
+        return done(TURN_OFF_APP, "ok", "ok: $label is off for Buddy now: Buddy won't open it, use it or read its messages")
+    }
+
     /** The apps on the home screen whose names match what the user said. */
     private fun find(said: String): List<Pair<String, String>> {
         val pm = appContext.packageManager
@@ -89,12 +100,18 @@ class PhoneShortcuts(
         found: List<Pair<String, String>>,
     ) = if (found.isEmpty()) "error: there's no app called $said on the phone" else "several apps match: ${found.take(5).joinToString(", ") { it.second }}; ask which one"
 
-    private fun open(
+    /** Opens the app and gives it a moment to come up, so a look at the screen right after sees it and not the one before. */
+    private suspend fun open(
         pkg: String,
         label: String,
     ): String {
         val intent = appContext.packageManager.getLaunchIntentForPackage(pkg) ?: return done(OPEN_APP, "failed", "error: $label can't be opened from here")
-        return show(OPEN_APP, intent, "opened $label on the phone").also { if (it.startsWith("ok")) cards?.show(BuddyCard.App(pkg, "Opened $label")) }
+        val result = show(OPEN_APP, intent, "opened $label on the phone")
+        if (result.startsWith("ok")) {
+            cards?.show(BuddyCard.App(pkg, "Opened $label"))
+            delay(OPEN_SETTLE_MS)
+        }
+        return result
     }
 
     private fun outcome(result: String) = when {
@@ -163,10 +180,12 @@ class PhoneShortcuts(
     companion object {
         const val OPEN_APP = "open_app"
         const val TURN_ON_APP = "turn_on_app"
+        const val TURN_OFF_APP = "turn_off_app"
         const val NAVIGATE = "navigate_to"
         const val FLASHLIGHT = "flashlight"
 
         private const val NAME_MAX = 80
+        private const val OPEN_SETTLE_MS = 1_500L
         private const val PLACE_MAX = 200
         private val MODES = mapOf("driving" to "driving", "walking" to "walking", "cycling" to "bicycling", "transit" to "transit")
 
@@ -185,6 +204,12 @@ class PhoneShortcuts(
                     "Turn an app on for Buddy when the user wants Buddy to use it or read its messages: Buddy only uses the apps the user " +
                         "turned on. Reads back and waits for the user's yes. Banking, payment, password and settings apps can't be turned " +
                         "on this way: the user does that by hand in Buddy's app.",
+                    """{"type":"object","properties":{"name":{"type":"string","description":"The app's name as the user said it."}},"required":["name"],"additionalProperties":false}""",
+                ),
+                ToolSpec(
+                    TURN_OFF_APP,
+                    "Turn an app off for Buddy when the user wants Buddy out of it: Buddy then won't open it, use it or read its " +
+                        "messages. Right away, no yes needed.",
                     """{"type":"object","properties":{"name":{"type":"string","description":"The app's name as the user said it."}},"required":["name"],"additionalProperties":false}""",
                 ),
                 ToolSpec(
