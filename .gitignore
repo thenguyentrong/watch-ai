@@ -17,3 +17,6 @@ captures/
 
 # AI coding skills used while building (third-party, licences in their own folder); kept locally, not part of the app.
 .claude/
+
+# Demo video work (brag / HyperFrames), not part of the app.
+brag-output*/
