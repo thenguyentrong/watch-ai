@@ -8,6 +8,7 @@ import com.vinhnguyen.watchai.PhoneTalkService
 import com.vinhnguyen.watchai.actions.ConversationActions
 import com.vinhnguyen.watchai.actions.MessageInbox
 import com.vinhnguyen.watchai.actions.NoteStore
+import com.vinhnguyen.watchai.actions.OwnerPresence
 import com.vinhnguyen.watchai.actions.ReachActions
 import com.vinhnguyen.watchai.brain.Preloaded
 import com.vinhnguyen.watchai.brain.Toolboxes
@@ -145,7 +146,10 @@ class VoiceLabViewModel(
                         graph.session,
                         ChatGptHttp.authClient(),
                         graph.chatGpt,
-                        Toolboxes(listOf(graph.tools, ConversationActions({ (session as? ChatGptRealtimeSession)?.endSoon() }, graph.logger))),
+                        graph.guard(
+                            Toolboxes(listOf(graph.tools, ConversationActions({ (session as? ChatGptRealtimeSession)?.endSoon() }, graph.logger))),
+                            OwnerPresence(graph.appContext) { false },
+                        ),
                         graph.logger,
                         voice = _state.value.voice,
                         onIdle = { stop() },

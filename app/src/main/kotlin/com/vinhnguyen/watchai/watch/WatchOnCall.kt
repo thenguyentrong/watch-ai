@@ -24,6 +24,13 @@ class WatchOnCall(
 
     override suspend fun battery(): String = watch.ask(Control("battery")) ?: NO_ANSWER
 
+    /** Whether the watch is unlocked, so on the wrist; null when it has no screen lock or doesn't answer. */
+    suspend fun unlocked(): Boolean? = when (watch.ask(Control("locked"))) {
+        "unlocked" -> true
+        "locked" -> false
+        else -> null
+    }
+
     private companion object {
         const val NO_ANSWER = "error: the watch didn't answer"
     }

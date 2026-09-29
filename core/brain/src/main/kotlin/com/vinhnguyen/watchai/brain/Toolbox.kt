@@ -16,7 +16,26 @@ public interface Toolbox {
         name: String,
         argumentsJson: String,
     ): String
+
+    /** The same, knowing what the user asked (so private data can be cut down to what the question needs). */
+    public suspend fun run(
+        name: String,
+        argumentsJson: String,
+        context: ToolContext,
+    ): String = run(name, argumentsJson)
+
+    /**
+     * True once a result carried the user's private data (messages, notes, the calendar) in this
+     * conversation. From then on the brain keeps the model away from the live web, so a poisoned
+     * message can't make it open a link with that data in it.
+     */
+    public val sharedPrivateData: Boolean get() = false
 }
+
+/** What the call is for: the user's question in this turn. */
+public data class ToolContext(
+    val question: String,
+)
 
 /** [parametersJson] is a JSON Schema object for the arguments. */
 public data class ToolSpec(
@@ -38,10 +57,18 @@ public class Toolboxes(
     override suspend fun run(
         name: String,
         argumentsJson: String,
+    ): String = run(name, argumentsJson, ToolContext(""))
+
+    override suspend fun run(
+        name: String,
+        argumentsJson: String,
+        context: ToolContext,
     ): String {
         val part = parts.firstOrNull { toolbox -> toolbox.tools().any { it.name == name } }
-        val result = part?.run(name, argumentsJson) ?: "error: there is no action called $name"
+        val result = part?.run(name, argumentsJson, context) ?: "error: there is no action called $name"
         onResult(name, result)
         return result
     }
+
+    override val sharedPrivateData: Boolean get() = parts.any { it.sharedPrivateData }
 }

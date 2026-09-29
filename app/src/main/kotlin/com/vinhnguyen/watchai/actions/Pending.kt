@@ -43,6 +43,12 @@ class Pending(
         return if (yes) p.go() else "ok: cancelled, nothing was sent"
     }
 
+    /** Drops whatever waits for a yes: the user said stop. */
+    @Synchronized
+    fun cancel() {
+        current = null
+    }
+
     @Synchronized
     private fun clear(p: Proposal) {
         if (current === p) current = null

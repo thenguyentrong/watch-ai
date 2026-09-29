@@ -55,6 +55,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.vinhnguyen.watchai.AppGraph
 import com.vinhnguyen.watchai.BuildConfig
 import com.vinhnguyen.watchai.R
+import com.vinhnguyen.watchai.brain.Availability
 import com.vinhnguyen.watchai.brain.chatgpt.auth.AuthState
 import com.vinhnguyen.watchai.buddy.Act
 import com.vinhnguyen.watchai.buddy.Genes
@@ -68,6 +69,7 @@ enum class Page(
 ) {
     CHAT("Chat"),
     ABILITIES("What Buddy can do"),
+    ACTIVITY("What Buddy did"),
     AI("Your AI"),
     SETTINGS("Settings"),
     VOICE_LAB("Voice lab", forTesting = true),
@@ -160,9 +162,15 @@ fun BuddyApp(
 
             Page.ABILITIES -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { AbilitiesScreen(pages.abilities) }
 
+            Page.ACTIVITY -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { ActivityScreen(graph.actionLog) }
+
             Page.AI -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { BrainsScreen(pages.brains) }
 
-            Page.SETTINGS -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { SettingsScreen(graph.settings, onDeleteEverything = graph::deleteEverything, benchmark = pages.benchmark) }
+            Page.SETTINGS ->
+                Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) {
+                    val offlineReady by produceState(false) { value = graph.gemma.availability() == Availability.Ready }
+                    SettingsScreen(graph.settings, onDeleteEverything = graph::deleteEverything, benchmark = pages.benchmark, offlineReady = offlineReady)
+                }
 
             Page.VOICE_LAB ->
                 Page(p.title, onBack = { page = null }, scrolls = false, backdrop = pageBackdrop) { top ->
@@ -254,6 +262,7 @@ private fun Menu(
         Spacer(Modifier.height(10.dp))
         MenuItem(painterResource(R.drawable.sym_chat_bubble), Page.CHAT.title) { onOpen(Page.CHAT) }
         MenuItem(painterResource(R.drawable.sym_bolt), Page.ABILITIES.title) { onOpen(Page.ABILITIES) }
+        MenuItem(painterResource(R.drawable.sym_history), Page.ACTIVITY.title) { onOpen(Page.ACTIVITY) }
         MenuItem(painterResource(R.drawable.sym_neurology), Page.AI.title) { onOpen(Page.AI) }
         MenuItem(painterResource(R.drawable.sym_settings), Page.SETTINGS.title) { onOpen(Page.SETTINGS) }
         if (BuildConfig.DEBUG) {

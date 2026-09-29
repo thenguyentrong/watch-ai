@@ -282,7 +282,7 @@ class PhoneVoiceLink private constructor(
 
             "bye" -> phoneHungUp = true
 
-            "timer", "alarm", "battery" -> outbox.offer(Frame.Message(Control("done", id = control.id, text = actions.run(control, onScreen))))
+            "timer", "alarm", "battery", "locked" -> outbox.offer(Frame.Message(Control("done", id = control.id, text = actions.run(control, onScreen))))
 
             "mascot" -> {
                 control.seed?.takeIf { it != _genes.value.seed }?.let { seed ->

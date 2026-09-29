@@ -7,6 +7,7 @@ import android.media.AudioManager
 import com.google.android.gms.wearable.ChannelClient
 import com.vinhnguyen.watchai.AppGraph
 import com.vinhnguyen.watchai.actions.ConversationActions
+import com.vinhnguyen.watchai.actions.OwnerPresence
 import com.vinhnguyen.watchai.actions.PhoneActions
 import com.vinhnguyen.watchai.actions.ReachActions
 import com.vinhnguyen.watchai.brain.Toolboxes
@@ -59,6 +60,7 @@ class WatchCalls(
     private var audio: WatchAudio? = null
     private var channel: ChannelClient.Channel? = null
     private var watcher: Job? = null
+    private var warmth: Job? = null
     private var phoneAudio: PhoneAudio? = null
     private var onEnded: (() -> Unit)? = null
 
@@ -94,24 +96,26 @@ class WatchCalls(
                 }
             }
             watch.mascot(seed = graph.buddySeed())
+            val onCall = WatchOnCall(watch)
             val tools =
                 Toolboxes(
                     listOf(
                         // Timers and alarms go to the watch unless the user asks for the phone: it's on the wrist, and on screen.
-                        PhoneActions(graph.appContext, graph.notes, graph.controls, graph.phoneClock, WatchOnCall(watch), graph.logger, cards = graph.cards),
+                        PhoneActions(graph.appContext, graph.notes, graph.controls, graph.phoneClock, onCall, graph.logger, cards = graph.cards),
                         // A call started from here takes over the phone's audio: Buddy makes way.
                         ReachActions(graph.appContext, graph.contacts, graph.inbox, graph.pending, graph.logger, onCalling = { session?.endSoon() }, cards = graph.cards),
                         graph.shortcuts,
                         ConversationActions({ session?.endSoon() }, graph.logger),
                     ),
                 ) { name, result -> afterTool(watch, name, result) }
+            warmth = graph.warmReader()
             val s =
                 ChatGptRealtimeSession(
                     graph.appContext,
                     graph.session,
                     ChatGptHttp.authClient(),
                     graph.chatGpt,
-                    tools,
+                    graph.guard(tools, OwnerPresence(graph.appContext) { onCall.unlocked() }),
                     graph.logger,
                     voice = graph.settings.voice,
                     external = watch,
@@ -201,6 +205,8 @@ class WatchCalls(
         val s = session ?: return
         session = null
         s.stop()
+        warmth?.cancel()
+        warmth = null
         watcher?.cancel()
         watcher = null
         phoneAudio?.stop()

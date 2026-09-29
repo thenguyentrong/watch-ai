@@ -78,6 +78,8 @@ class BuddyNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
+        // Banking, payments, password managers, authenticators: never read, whatever they post.
+        if (SensitiveApps.hidden(sbn.packageName)) return
         val n = sbn.notification
         // A group summary repeats the chats inside it.
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return

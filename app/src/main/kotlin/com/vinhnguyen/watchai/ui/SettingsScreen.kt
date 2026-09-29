@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,9 +37,11 @@ fun SettingsScreen(
     settings: AppSettings,
     onDeleteEverything: suspend () -> Unit,
     benchmark: BenchmarkViewModel?,
+    offlineReady: Boolean,
 ) {
     val p = LocalPalette.current
     var voice by remember { mutableStateOf(settings.voice) }
+    var privateOnPhone by remember { mutableStateOf(settings.privateOnPhone) }
     var confirm by remember { mutableStateOf(false) }
     var deleted by remember { mutableStateOf(false) }
     var licences by remember { mutableStateOf(false) }
@@ -66,6 +69,26 @@ fun SettingsScreen(
         footer = "Chats stay in memory and are gone when you close the app. Your ChatGPT sign-in is encrypted with a key " +
             "that can't leave this phone. No analytics, no ads, no backups of app data.",
     ) {
+        Item(
+            "Read private things on this phone",
+            subtitle =
+            if (offlineReady) {
+                "Gemma on this phone reads your messages, notes and calendar first; ChatGPT only gets what your question needs. " +
+                    "A few seconds slower."
+            } else {
+                "Needs the offline model (Your AI). Until then, codes, numbers and links are still taken out before ChatGPT sees anything."
+            },
+            trailing = {
+                Switch(
+                    checked = privateOnPhone,
+                    onCheckedChange = {
+                        settings.privateOnPhone = it
+                        privateOnPhone = it
+                    },
+                    colors = switchColors(),
+                )
+            },
+        )
         Item(
             if (deleted) "Everything was deleted" else "Delete everything",
             subtitle = "Signs you out and removes the offline model, notes and settings",

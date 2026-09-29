@@ -49,6 +49,7 @@ class ChatViewModel(
     private var job: Job? = null
     private var nextId = 1L
     private var conversationId = UUID.randomUUID().toString()
+    private var guard = graph.guard(graph.tools) { true }
 
     fun send(text: String) {
         val prompt = text.trim()
@@ -75,7 +76,7 @@ class ChatViewModel(
             viewModelScope.launch {
                 try {
                     graph.router
-                        .stream(ChatRequest(conversationId, history, prompt, context = DeviceContext.describe(), tools = graph.tools), snapshot.preference, snapshot.cloudAllowed)
+                        .stream(ChatRequest(conversationId, history, prompt, context = DeviceContext.describe(), tools = guard), snapshot.preference, snapshot.cloudAllowed)
                         .collect { event ->
                             updateMessage(answerId) { m ->
                                 when (event) {
@@ -111,6 +112,7 @@ class ChatViewModel(
     fun newConversation() {
         stop()
         conversationId = UUID.randomUUID().toString()
+        guard = graph.guard(graph.tools) { true }
         _state.update { it.copy(messages = emptyList()) }
     }
 

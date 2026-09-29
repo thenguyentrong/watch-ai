@@ -25,12 +25,18 @@ import okhttp3.RequestBody.Companion.toRequestBody
 internal object ResponsesRequest {
     private val jsonType = "application/json".toMediaType()
 
-    /** [extraInput]: earlier output items (reasoning, tool calls) and tool results, replayed after the question. */
+    /**
+     * [extraInput]: earlier output items (reasoning, tool calls) and tool results, replayed after the
+     * question. [liveWeb]: search may open pages live. Off once the conversation holds the user's
+     * private data: then search only uses OpenAI's cached index, so no page is fetched with that
+     * data in its address.
+     */
     fun body(
         request: ChatRequest,
         model: String,
         effort: String,
         extraInput: List<JsonObject> = emptyList(),
+        liveWeb: Boolean = true,
     ): JsonObject = buildJsonObject {
         put("model", model)
         put("instructions", PromptStyle.system(request))
@@ -59,10 +65,10 @@ internal object ResponsesRequest {
         if (request.webSearch || functions.isNotEmpty()) {
             putJsonArray("tools") {
                 if (request.webSearch) {
-                    // Same tool spec as Codex's live web search.
+                    // Same tool spec as Codex's web search: live, or cached only.
                     addJsonObject {
                         put("type", "web_search")
-                        put("external_web_access", true)
+                        put("external_web_access", liveWeb)
                     }
                 }
                 functions.forEach { spec ->

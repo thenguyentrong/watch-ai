@@ -14,16 +14,17 @@ crash reporting of its own.
 | Voice conversations (watch or phone) | Sound goes from the watch to your phone over Bluetooth, and from your phone to OpenAI under your own ChatGPT account, only while a conversation is on | To talk with you | Not stored by the app; OpenAI's terms apply |
 | "Hey Buddy" | Heard on the watch only, in its memory, while it listens: a short while after you raise your wrist, or all the time if you switch that on | To hear the phrase | Not stored; nothing leaves the watch until it hears "Hey Buddy" |
 | Learn my voice | Five short recordings, handled on the watch; only what the model heard (a short spelling) is kept | To hear your voice better | Recordings deleted right after; the spelling until you choose Forget my voice |
-| Messages you got (only with notification access) | Read from your notifications, kept in the phone's memory for at most 6 hours; read out, or sent to OpenAI, only when you ask about them | To read and answer your messages | Never stored |
+| Messages you got (only with notification access) | Read from your notifications, kept in the phone's memory for at most 6 hours; read out, or sent to OpenAI, only when you ask about them. Codes, card and account numbers, passwords, links, phone numbers and email addresses are taken out first, and with the offline model Gemma reads them on your phone and OpenAI only gets its short summary. Banking, payment, password manager and authenticator apps are never read | To read and answer your messages | Never stored |
 | Contacts (only with your OK) | Read on your phone when you name someone to text or call | To find the right person | Not stored |
 | Texts and calls you confirm | Sent or placed by your phone after your yes; a text reaches the other person through your carrier | You asked for it | Your phone's own message and call history |
-| Notes and calendar | Notes encrypted on your phone; calendar events read and added in your phone's calendar (with your OK) | You asked for it | Sent to OpenAI only with the request that needs them |
+| Notes and calendar | Notes encrypted on your phone; calendar events read and added in your phone's calendar (with your OK) | You asked for it | Sent to OpenAI only with the request that needs them, cleaned the same way as messages (with the offline model, only Gemma's summary) |
 | Places for directions, apps you open | Handed to Google Maps or the app on your phone | You asked for it | Their terms apply |
 | The small map in Buddy's pop-up (when you ask for directions) | The place name goes from your phone to OpenStreetMap, to find it and fetch the map around it; they see your IP address | To show you where it is | Not stored by the app; OpenStreetMap's privacy policy applies |
 | ChatGPT sign-in (tokens, account id, plan, masked email) | Encrypted on your phone with a key that can't leave it | To keep you signed in | Until you sign out or delete everything |
 | On-device model download | Your phone downloads it from Hugging Face; they see your IP address | To run Gemma on your phone | The model stays until you delete it |
 | Gemini Nano (only if you opt in) | Google's ML Kit sends Google anonymous diagnostics (device model, speed, error codes) | Needed by Google's on-device API | Google's terms apply |
 | Answers you flag | Encrypted on your phone; your question only if you tick the box | To report harmful or wrong answers | Until you delete everything |
+| What Buddy did | Encrypted on your phone: the kind of action (a text, a timer) and how it ended, never what was in it | So you can see what Buddy did | 30 days, or until you clear it or delete everything |
 
 International transfers: OpenAI, Hugging Face and Google may process data in the USA, and the
 OpenStreetMap Foundation in the UK (its map tiles come through a worldwide CDN), under their own

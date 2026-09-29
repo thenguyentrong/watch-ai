@@ -9,6 +9,7 @@ import com.vinhnguyen.watchai.brain.BrainLogger
 import com.vinhnguyen.watchai.brain.ChatEvent
 import com.vinhnguyen.watchai.brain.ChatRequest
 import com.vinhnguyen.watchai.brain.LogEvent
+import com.vinhnguyen.watchai.brain.ToolContext
 import com.vinhnguyen.watchai.brain.Toolbox
 import com.vinhnguyen.watchai.brain.TurnStats
 import com.vinhnguyen.watchai.brain.UnavailableReason
@@ -146,7 +147,9 @@ public class ChatGptBrain(
         while (true) {
             val index = modelIndex.get().coerceAtMost(settings.models.lastIndex)
             val model = settings.models[index]
-            val body = ResponsesRequest.body(request.copy(webSearch = search), model, settings.reasoningEffort, replay)
+            // Checked every round: a tool result in the last one may have brought private data in.
+            val liveWeb = request.tools?.sharedPrivateData != true
+            val body = ResponsesRequest.body(request.copy(webSearch = search), model, settings.reasoningEffort, replay, liveWeb)
             val call = http.newCall(ResponsesRequest.http(endpoints.responses, body, bearer, request.conversationId, settings.userAgent))
             when (
                 val attempt =
@@ -165,7 +168,7 @@ public class ChatGptBrain(
                     if (attempt.calls.isEmpty() || tools == null || toolRounds >= MAX_TOOL_ROUNDS) return attempt.model
                     // Stateless endpoint: replay the model's items, then the results, and ask again.
                     toolRounds++
-                    val results = attempt.calls.map { call -> functionOutput(call.callId, runTool(tools, call)) }
+                    val results = attempt.calls.map { call -> functionOutput(call.callId, runTool(tools, call, request.userText)) }
                     replay = replay + attempt.items + results
                 }
 
@@ -199,8 +202,9 @@ public class ChatGptBrain(
     private suspend fun runTool(
         tools: Toolbox,
         call: FunctionCall,
+        question: String,
     ): String = try {
-        tools.run(call.name, call.arguments)
+        tools.run(call.name, call.arguments, ToolContext(question))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {

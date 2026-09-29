@@ -6,6 +6,7 @@ import com.vinhnguyen.watchai.AppGraph
 import com.vinhnguyen.watchai.PhoneTalkService
 import com.vinhnguyen.watchai.actions.BuddyCard
 import com.vinhnguyen.watchai.actions.ConversationActions
+import com.vinhnguyen.watchai.actions.OwnerPresence
 import com.vinhnguyen.watchai.actions.Pending
 import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
@@ -122,7 +123,7 @@ class TalkViewModel(
                         graph.session,
                         ChatGptHttp.authClient(),
                         graph.chatGpt,
-                        Toolboxes(listOf(graph.tools, ConversationActions({ session?.endSoon() }, graph.logger))),
+                        graph.guard(Toolboxes(listOf(graph.tools, ConversationActions({ session?.endSoon() }, graph.logger))), OwnerPresence(graph.appContext) { false }),
                         graph.logger,
                         voice = graph.settings.voice,
                         idleHangUpMs = IDLE_HANG_UP_MS,
@@ -132,6 +133,7 @@ class TalkViewModel(
                 session = s
                 jobs =
                     listOf(
+                        graph.warmReader(),
                         viewModelScope.launch { s.state.collect { show(it, onWatch = false) } },
                         viewModelScope.launch { s.level.collect { _level.value = it } },
                     )

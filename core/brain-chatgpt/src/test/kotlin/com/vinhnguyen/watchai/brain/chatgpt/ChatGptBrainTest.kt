@@ -6,6 +6,7 @@ import com.vinhnguyen.watchai.brain.BrainError
 import com.vinhnguyen.watchai.brain.ChatEvent
 import com.vinhnguyen.watchai.brain.ChatRequest
 import com.vinhnguyen.watchai.brain.ChatTurn
+import com.vinhnguyen.watchai.brain.ToolContext
 import com.vinhnguyen.watchai.brain.ToolSpec
 import com.vinhnguyen.watchai.brain.Toolbox
 import com.vinhnguyen.watchai.brain.chatgpt.auth.AuthSession
@@ -223,6 +224,45 @@ class ChatGptBrainTest {
         assertThat(replayed.map { it["type"]!!.jsonPrimitive.content }).containsExactly("reasoning", "function_call", "function_call_output").inOrder()
         assertThat(replayed[2]["call_id"]!!.jsonPrimitive.content).isEqualTo("call_SYNTHETIC")
         assertThat(replayed[2]["output"]!!.jsonPrimitive.content).isEqualTo("ok: note saved")
+    }
+
+    /** Reads messages: from then on the conversation holds private data. */
+    private class PrivateToolbox : Toolbox {
+        var question: String? = null
+
+        @Volatile private var read = false
+
+        override val sharedPrivateData: Boolean get() = read
+
+        override fun tools() = listOf(ToolSpec("read_messages", "Reads messages.", """{"type":"object","properties":{}}"""))
+
+        override suspend fun run(
+            name: String,
+            argumentsJson: String,
+        ): String = error("the brain passes the question")
+
+        override suspend fun run(
+            name: String,
+            argumentsJson: String,
+            context: ToolContext,
+        ): String {
+            question = context.question
+            read = true
+            return "SYNTHETIC: Anna asks about dinner"
+        }
+    }
+
+    @Test
+    fun `once private data came in, web search is cached only, and tools hear the question`() {
+        val toolbox = PrivateToolbox()
+        server.enqueue(Sse.response(functionCall("call_SYNTHETIC", "read_messages", "{}"), Sse.completed()))
+        server.enqueue(Sse.response(Sse.delta("Anna asks about dinner."), Sse.completed()))
+        runBlocking { withTimeout(15_000) { brain.stream(request.copy(webSearch = true, tools = toolbox)).toList() } }
+
+        fun live(body: JsonObject) = body["tools"]!!.jsonArray.map { it.jsonObject }.single { it["type"]!!.jsonPrimitive.content == "web_search" }["external_web_access"]!!.jsonPrimitive.content
+        assertThat(live(Json.obj(server.takeRequest().body!!.utf8()))).isEqualTo("true")
+        assertThat(live(Json.obj(server.takeRequest().body!!.utf8()))).isEqualTo("false")
+        assertThat(toolbox.question).isEqualTo(request.userText)
     }
 
     @Test
