@@ -78,7 +78,10 @@ class AbilitiesViewModel(
  * on the watch and in chat. Messages and calls always wait for the user's yes.
  */
 @Composable
-fun AbilitiesScreen(vm: AbilitiesViewModel) {
+fun AbilitiesScreen(
+    vm: AbilitiesViewModel,
+    onSeeMessages: () -> Unit,
+) {
     val p = LocalPalette.current
     val allowed by vm.allowed.collectAsStateWithLifecycle()
     val notes by vm.notes.collectAsStateWithLifecycle()
@@ -107,7 +110,15 @@ fun AbilitiesScreen(vm: AbilitiesViewModel) {
     Group("People") {
         Ability(R.drawable.sym_chat_bubble, "Text someone", "\"Text Anna I'm running late\"", allowed.textsAndCalls) { ask.launch(ReachActions.PERMISSIONS) }
         Ability(R.drawable.sym_call, "Call someone", "\"Call Jan\"", allowed.textsAndCalls) { ask.launch(ReachActions.PERMISSIONS) }
-        Ability(R.drawable.sym_forum, "Read and answer messages", "\"Any messages?\" · WhatsApp, Signal, SMS and more", allowed.messages, last = true, onAllow = askMessages)
+        Ability(
+            R.drawable.sym_forum,
+            "Read and answer messages",
+            "\"Any messages?\" · WhatsApp, Signal, SMS and more",
+            allowed.messages,
+            last = true,
+            onAllow = askMessages,
+            onSee = onSeeMessages,
+        )
     }
     Group("Time") {
         Ability(R.drawable.sym_timer, "Timers and alarms", "\"Timer for ten minutes\"", allowed = null)
@@ -161,12 +172,19 @@ private fun Ability(
     allowed: Boolean?,
     last: Boolean = false,
     onAllow: () -> Unit = {},
+    /** Once allowed: show what it can see. */
+    onSee: (() -> Unit)? = null,
 ) {
     Item(
         title,
         subtitle = example,
         painter = painterResource(icon),
         last = last,
-        trailing = { if (allowed == false) Pill("Allow", onClick = onAllow) },
+        trailing = {
+            when {
+                allowed == false -> Pill("Allow", onClick = onAllow)
+                allowed == true && onSee != null -> Pill("See", onClick = onSee, filled = false)
+            }
+        },
     )
 }

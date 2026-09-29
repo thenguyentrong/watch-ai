@@ -73,6 +73,7 @@ enum class Page(
     AI("Your AI"),
     SETTINGS("Settings"),
     SAFETY("See what ChatGPT gets"),
+    INBOX("Messages Buddy has"),
     VOICE_LAB("Voice lab", forTesting = true),
     BUDDIES("More Buddies", forTesting = true),
 }
@@ -135,7 +136,14 @@ fun BuddyApp(
         }
     }
     BackHandler(menu) { menu = false }
-    BackHandler(!menu && page != null) { page = if (page == Page.SAFETY) Page.SETTINGS else null }
+    BackHandler(!menu && page != null) {
+        page =
+            when (page) {
+                Page.SAFETY -> Page.SETTINGS
+                Page.INBOX -> Page.ABILITIES
+                else -> null
+            }
+    }
     SystemBars(lightIcons = isSystemInDarkTheme())
 
     Box(Modifier.fillMaxSize()) {
@@ -161,7 +169,7 @@ fun BuddyApp(
                     backdrop = pageBackdrop,
                 ) { top -> ChatScreen(pages.chat, top) }
 
-            Page.ABILITIES -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { AbilitiesScreen(pages.abilities) }
+            Page.ABILITIES -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { AbilitiesScreen(pages.abilities, onSeeMessages = { open(Page.INBOX) }) }
 
             Page.ACTIVITY -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { ActivityScreen(graph.actionLog) }
 
@@ -180,6 +188,8 @@ fun BuddyApp(
                 }
 
             Page.SAFETY -> Page(p.title, onBack = { page = Page.SETTINGS }, backdrop = pageBackdrop) { SafetyCheckScreen(graph) }
+
+            Page.INBOX -> Page(p.title, onBack = { page = Page.ABILITIES }, backdrop = pageBackdrop) { InboxScreen(graph.inbox) }
 
             Page.VOICE_LAB ->
                 Page(p.title, onBack = { page = null }, scrolls = false, backdrop = pageBackdrop) { top ->

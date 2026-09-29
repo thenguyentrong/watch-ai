@@ -46,6 +46,12 @@ class MessageInbox {
         messages.removeAll { it.key == key }
     }
 
+    /** Forgets every message now (the user asked). New ones are still noticed. */
+    @Synchronized
+    fun clear() {
+        messages.clear()
+    }
+
     /** Newest first. */
     @Synchronized
     fun recent(now: Long): List<Message> = messages.filter { now - it.at < KEEP_MS }.sortedByDescending { it.at }
