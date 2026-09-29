@@ -1,0 +1,3 @@
+# Made-up test tokens in commit 8984812, from before the SYNTHETIC marker reached CI's gitleaks.
+8984812f00cac23aee00519f9e211a544d4f2fa7:core/brain/src/test/kotlin/com/vinhnguyen/watchai/brain/guard/RedactorTest.kt:jwt:68
+8984812f00cac23aee00519f9e211a544d4f2fa7:core/brain/src/test/kotlin/com/vinhnguyen/watchai/brain/guard/RedactorTest.kt:github-pat:71

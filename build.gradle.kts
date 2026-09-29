@@ -46,7 +46,12 @@ tasks.register("checkSyntheticFixtures") {
         }
     inputs.files(testSources)
     doLast {
-        val tokenShapes = listOf(Regex("""eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"""), Regex("""sk-[A-Za-z0-9]{16,}"""))
+        val tokenShapes =
+            listOf(
+                Regex("""eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"""),
+                Regex("""sk-(proj-)?[A-Za-z0-9]{16,}"""),
+                Regex("""gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}"""),
+            )
         val hits =
             testSources.files.flatMap { file ->
                 file.readLines().mapIndexedNotNull { index, line ->

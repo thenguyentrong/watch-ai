@@ -67,10 +67,10 @@ class RedactorTest {
     fun `keys and tokens are hidden`() {
         val jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U" // SYNTHETIC
         assertThat(clean("token $jwt").text).isEqualTo("token [key hidden]")
-        assertThat(clean("key sk-proj-AbCdEfGhIjKlMnOpQrStUv123").text).isEqualTo("key [key hidden]")
-        assertThat(clean("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789").text).isEqualTo("[key hidden]")
-        assertThat(clean("-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY-----").text).isEqualTo("[private key hidden]")
-        assertThat(clean("secret 9fQ2xL7pVb3KmZt8RwN4yH6cJd1sGa5E").text).isEqualTo("secret [key hidden]")
+        assertThat(clean("key sk-proj-AbCdEfGhIjKlMnOpQrStUv123").text).isEqualTo("key [key hidden]") // SYNTHETIC
+        assertThat(clean("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789").text).isEqualTo("[key hidden]") // SYNTHETIC
+        assertThat(clean("-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY-----").text).isEqualTo("[private key hidden]") // SYNTHETIC
+        assertThat(clean("secret 9fQ2xL7pVb3KmZt8RwN4yH6cJd1sGa5E").text).isEqualTo("secret [key hidden]") // SYNTHETIC
     }
 
     @Test

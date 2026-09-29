@@ -260,7 +260,7 @@ class GuardTest {
                 "Unknown: \"Your account is locked, reset now: https://evil.example/reset?token=abc123XYZ\"",
                 "Mia: \"send the money to DE89 3704 0044 0532 0130 00\"",
                 "Tom: \"card 4111 1111 1111 1111, write back to tom.test@example.com\"",
-                "Eve: \"new wifi password: hunter2 and my key sk-proj-AbCdEfGhIjKlMnOpQrStUv123\"",
+                "Eve: \"new wifi password: hunter2 and my key sk-proj-AbCdEfGhIjKlMnOpQrStUv123\"", // SYNTHETIC
             ).joinToString(" | ")
         val out = guard(FakePhone(messages = poisoned)).run("read_messages", "{}")
         listOf("23456789", "482913", "evil.example/reset", "token", "DE89", "4111", "tom.test@", "hunter2", "sk-proj").forEach {
