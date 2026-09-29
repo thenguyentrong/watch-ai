@@ -14,6 +14,7 @@ import androidx.core.content.IntentCompat
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.WearableListenerService
 import com.vinhnguyen.watchai.MainActivity
+import com.vinhnguyen.watchai.R
 import com.vinhnguyen.watchai.WatchAiApp
 import com.vinhnguyen.watchai.watchlink.WatchLink
 import kotlinx.coroutines.launch
@@ -75,7 +76,7 @@ class WatchCallService : Service() {
 
     private fun notification() = NotificationCompat
         .Builder(this, CHANNEL)
-        .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+        .setSmallIcon(R.drawable.ic_stat_buddy)
         .setContentTitle("Talking through your watch")
         .setContentText("ChatGPT voice on your plan")
         .setCategory(NotificationCompat.CATEGORY_CALL)

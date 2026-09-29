@@ -49,7 +49,7 @@ class PhoneTalkService : Service() {
 
     private fun notification() = NotificationCompat
         .Builder(this, CHANNEL)
-        .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+        .setSmallIcon(R.drawable.ic_stat_buddy)
         .setContentTitle("Talking with Buddy")
         .setContentText("Still listening while you use other apps")
         .setCategory(NotificationCompat.CATEGORY_CALL)

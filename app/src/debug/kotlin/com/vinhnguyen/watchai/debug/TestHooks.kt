@@ -22,6 +22,7 @@ import timber.log.Timber
  *   adb shell am broadcast -n com.vinhnguyen.watchai/.debug.TestHooks --es page settings
  *   adb shell am broadcast -n com.vinhnguyen.watchai/.debug.TestHooks --es card place
  *   adb shell am broadcast -n com.vinhnguyen.watchai/.debug.TestHooks --es check speak [--ez aloud true]
+ *   adb shell am broadcast -n com.vinhnguyen.watchai/.debug.TestHooks --es check icon   (then adb pull files/icon.png)
  *
  * Pages: home, menu, chat, abilities, activity, ai, settings, safety, inbox, voice_lab, buddies. Cards:
  * timer, note, app, text, call, place, messages. Checks log to tag BuddyTest and show nothing.
@@ -34,6 +35,16 @@ class TestHooks : BroadcastReceiver() {
         val graph = (context.applicationContext as WatchAiApp).graph
         intent.getStringExtra("page")?.let { graph.testPage.value = TestPage(it) }
         card(context, intent.getStringExtra("card"))?.let(graph.cards::show)
+        if (intent.getStringExtra("check") == "icon") {
+            // The app's icon as the launcher draws it (the phone's own icon shape), saved for adb pull.
+            val icon = context.packageManager.getApplicationIcon(context.packageName)
+            val bitmap = android.graphics.Bitmap.createBitmap(512, 512, android.graphics.Bitmap.Config.ARGB_8888)
+            icon.setBounds(0, 0, 512, 512)
+            icon.draw(android.graphics.Canvas(bitmap))
+            val file = java.io.File(context.getExternalFilesDir(null), "icon.png")
+            file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            Timber.tag(TAG).i("icon saved to %s", file.path)
+        }
         if (intent.getStringExtra("check") == "speak") {
             val aloud = intent.getBooleanExtra("aloud", false)
             graph.scope.launch {

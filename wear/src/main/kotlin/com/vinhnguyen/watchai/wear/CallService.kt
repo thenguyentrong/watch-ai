@@ -163,7 +163,7 @@ class CallService : Service() {
         val notification =
             NotificationCompat
                 .Builder(this, FACE_CHANNEL)
-                .setSmallIcon(R.drawable.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_buddy)
                 .setContentTitle("Listening")
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -190,7 +190,7 @@ class CallService : Service() {
 
     private fun notification() = NotificationCompat
         .Builder(this, CHANNEL)
-        .setSmallIcon(R.drawable.ic_launcher)
+        .setSmallIcon(R.drawable.ic_stat_buddy)
         .setCategory(if (talking) NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_SERVICE)
         .setOngoing(true)
         .setContentIntent(
