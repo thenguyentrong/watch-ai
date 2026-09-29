@@ -88,12 +88,69 @@ A masked value becomes a handle: "you have a verification code from Google". If 
 it, the phone shows it on the watch or the phone screen, or says it with the phone's own speech
 engine, and it never reaches OpenAI.
 
-### Structured actions, not screen control
+### Structured actions first, then using apps (changed 2026-09-29)
 
-Buddy acts through Android's own ways in: intents, the messaging apps' reply actions, the calendar
-and contacts providers. No accessibility service: that would let it read and tap everything on
-screen, bank apps included. If screen control ever comes, it's limited to apps the user names,
-never on password fields or secure windows, with an overlay and a stop button while it acts.
+Buddy acts through Android's own ways in where there is one: intents, the messaging apps' reply
+actions, the calendar and contacts providers. For everything else ("what's the newest chat in
+this app?", "read my newest emails", "search for X in that app") it can now use the app itself,
+through an accessibility service the user switches on (`app/.../actions/screen/`). The split:
+
+- **ChatGPT plans, the phone reads.** ChatGPT sees an app's controls only: buttons, tabs and fields
+  by their short labels, list entries as "item 3", nothing longer than a label (`ScreenModel.controls`).
+  It taps, types and scrolls step by step. What's on the screen (chats, emails, list entries) only
+  goes to Gemma on the phone through `read_screen`, with ChatGPT's instruction as its task ("say
+  who wrote the newest message and what it says"). The phone says the answer itself. This stays on
+  the phone whatever the "Private on the phone" setting says.
+- **Sending waits for a yes.** Before a tap, Gemma sorts the control by its own words, in whatever
+  language the app shows them, and its view name: does it only move around the app (open, search,
+  go back) or does it do something (send, post, pay, buy, delete, confirm, call, join)? A tap that
+  does something, or one Gemma can't sort (no model, an icon without a label), is read back and
+  waits for the user's yes, with the same presence check and hourly budget as a text. Typing never
+  sends. Fields and tabs aren't asked about.
+- **Only the apps the user turned on.** Every other app is not opened, not read, not touched
+  (`AppLimits`); see [Apps Buddy can use](#apps-buddy-can-use-changed-2026-09-29). Password fields are
+  never read or typed into.
+- It doesn't watch: it looks at the screen only when a tool asks, and takes no screenshots.
+
+Not built yet: an overlay with a stop button while Buddy acts in an app.
+
+### Memory (changed 2026-09-29)
+
+Buddy keeps the conversations (the user's words and its replies, voice and chat) for 30 days and
+the facts the user asks it to keep, encrypted in their own vault (`Memory`). A new conversation starts
+with the facts and the last conversations of two days; look-ups get them too.
+
+- Only what ChatGPT had already goes back to it: turns only Gemma heard (the chat on the phone's own
+  model) are kept for History but marked local and never sent; what the phone read out privately
+  isn't kept at all. On the way out, codes, numbers and links are taken out again.
+- A remembered note is framed as the user's words, never instructions.
+- The risk is a lasting injection: a label in an app or a web page talking ChatGPT into "remembering"
+  an order. So `remember` only works within a minute of the user's own words (`UserTurns`), the tool
+  says only what the user said may be kept, and everything kept is in History, where the user sees
+  it and can forget it. "Remember conversations" switches the history off; the facts stay usable.
+
+### Any language, no word lists (changed 2026-09-29)
+
+People talk to Buddy in any language, and apps show their buttons in any language. So nothing in
+Buddy's code knows words of one language, or names of apps or banks:
+
+- ChatGPT understands the user whatever they speak. What it hands the phone is English (the
+  `instruction` for Gemma) plus the user's language as a BCP 47 tag (`language`), and a flag when
+  the user asked for a code or a number itself (`details`).
+- Gemma reads data in any language and answers in the tagged one. Android's own text classifier
+  (on the phone, no network) checks the answer's language; if Gemma drifted, it translates once.
+  The phone speaks with an offline voice for the language the answer is really in; without one, the
+  answer is shown on the phone and ChatGPT tells the user to look.
+- Anything that needs understanding words is Gemma's call, with a few made-up English examples
+  that show where the line is: whether a tap does something, whether an app is for money or
+  secrets. The code only reads Gemma's one-word answer.
+- The cleaner (`Redactor`) finds codes, card numbers and passwords by their shape (a bare six-digit
+  number, letters and digits in one word), not by words like "code" next to them.
+- Buddy's face reacts to what its actions did (done, failed, music), not to words.
+
+Checked on the S23 Ultra on 29.09 with made-up inputs from adb (not in the code): taps in 13
+languages, 27 of 28 unseen controls and 22 of 23 unseen apps sorted right, the misses on the safe
+side (an inbox tab would ask for a yes, a shop was kept out); about 0.4 s a question once Gemma is loaded.
 
 ## On the PC
 
@@ -147,8 +204,8 @@ logs into themselves, and passkeys where possible (they need the user's fingerpr
   lookups and drops what waits for a yes, every call logged by kind and outcome. One per
   conversation: phone voice, watch calls, chat, voice lab.
 - `Redactor` (core/brain): codes, cards (Luhn), IBANs (checksum), passwords, keys and tokens,
-  links (site kept), phone numbers, email addresses. Banking, payment, password manager and
-  authenticator apps are skipped when notifications come in (`SensitiveApps`).
+  links (site kept), phone numbers, email addresses, all by their shape. Notifications from the
+  apps that are always off (below) aren't kept at all (`AppLimits`).
 - The phone's own model first: `GemmaReader` answers the question from the cleaned data, and
   ChatGPT gets its summary. On by default, switch in Settings, Privacy. Measured on the S23 Ultra
   with made-up poisoned messages: 3.1 s warm, 10.4 s cold; a conversation warms Gemma up when it
@@ -174,6 +231,26 @@ when the user asks, since they don't leave the phone. The user can pick the offl
 
 What still reaches OpenAI: what the user says to Buddy (their requests, a text they dictate, a
 note they add). Only a voice that runs on the phone end to end would change that.
+
+### Apps Buddy can use (changed 2026-09-29)
+
+Every app is off until the user turns it on ("Apps Buddy can use", in the menu): only then does
+Buddy open it, use it on the screen or read its messages (`AppLimits`). Some can't be turned on at
+all. There's no list of apps for that, since no list covers every country's banks; the phone says:
+
+- whatever opens the phone's settings or a store link (settings, app stores);
+- password managers and passkey providers (they offer Android's autofill or credential service),
+  authenticators (they open `otpauth` links, the standard for sign-in codes), and apps that pay by
+  tapping the phone (NFC payment services);
+- anything that can't be opened from the home screen (system screens, installers, the shade).
+
+When the user asks for an app that's off, Buddy offers to turn it on (`turn_on_app`, or `open_app`
+and the screen tools on their own), and it waits for their yes like a text does: in a later turn,
+with the presence check, or a tap on the pop-up. Not for a money or secrets app: Gemma sorts the
+app by its name once per version (money, secrets or other, with made-up examples), and anything but
+"other", or no answer, can only be turned on by hand in the list. So no text in an app or on a web
+page can talk Buddy into a bank. Messages from apps that are off are only named, so the user can
+turn them on.
 
 Not in step 1 yet: grants ("PC tasks for an hour"), confirming a first-time recipient on the
 screen.

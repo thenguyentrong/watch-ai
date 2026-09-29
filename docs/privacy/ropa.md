@@ -6,7 +6,8 @@ user uses those features.
 
 | Processing | Purpose | Legal basis | Data subjects | Data | Recipients | Retention |
 |---|---|---|---|---|---|---|
-| Answering questions | Provide the app | Art. 6(1)(b) | App users | Questions/answers (memory only) | OpenAI, only for ChatGPT answers | Session |
+| Answering questions | Provide the app | Art. 6(1)(b) | App users | Questions/answers | OpenAI, only for ChatGPT answers | Session; History below |
+| History and remembered facts | Remember what the user talked about and asked Buddy to keep | Art. 6(1)(b) (the user can switch it off and delete it) | App users; people they mention | Their words, Buddy's replies, facts they asked to keep | OpenAI, cleaned, at the start of each conversation | 30 days; facts until forgotten |
 | Keeping the ChatGPT sign-in | Stay signed in | Art. 6(1)(b); § 25(2) TDDDG strictly necessary | App users | Tokens, account id, plan, masked email | None (on the phone) | Until sign-out |
 | Gemini Nano | On-device answers | Art. 6(1)(a) consent; § 25(1) TDDDG | Users who opt in | ML Kit diagnostics | Google | Google's terms |
 | Map of a place in the pop-up | Show where a place is | Art. 6(1)(b) | Users who ask for directions | Place name, IP address | OpenStreetMap Foundation (Nominatim, tile servers) | Not stored by us |

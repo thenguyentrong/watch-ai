@@ -12,7 +12,7 @@ App Defense Alliance MASA (based on MASVS).
 
 | Area | Control | Evidence |
 |---|---|---|
-| STORAGE | Tokens only in `KeystoreVault` (Tink AES-256-GCM, keyset wrapped by a Keystore key, StrongBox when present). Chats in memory only. No backups (`allowBackup=false`, `dataExtractionRules` exclude everything incl. device transfer). Model in `noBackupFilesDir`. | `core/security/.../KeystoreVault.kt`, `KeystoreVaultTest` (device), `app/src/main/res/xml/data_extraction_rules.xml` |
+| STORAGE | Tokens only in `KeystoreVault` (Tink AES-256-GCM, keyset wrapped by a Keystore key, StrongBox when present). Conversations (History) and remembered facts in their own `KeystoreVault` (own key), 30 days, deletable in the app. No backups (`allowBackup=false`, `dataExtractionRules` exclude everything incl. device transfer). Model in `noBackupFilesDir`. | `core/security/.../KeystoreVault.kt`, `KeystoreVaultTest` (device), `app/src/main/res/xml/data_extraction_rules.xml` |
 | CRYPTO | Tink only, no own crypto. Associated data binds each file to its purpose and name. Software-only keys refused. Decrypt failure wipes, never falls back to plaintext. | `KeystoreVault.kt` |
 | AUTH | PKCE S256 + state, loopback on 127.0.0.1 only, one-shot, Host check; device code fallback with phishing warning; refresh under one mutex; sign-out revokes and wipes. | `core/brain-chatgpt/.../auth/*`, `CallbackTest`, `AuthSessionTest` |
 | NETWORK | HTTPS only, system CAs, Certificate Transparency, host allow-lists for OpenAI and Hugging Face, no redirects on auth calls. No pinning (ADR 0004). | `network_security_config.xml`, `ChatGptHttp.kt`, `ModelDownloader.kt` |

@@ -103,6 +103,10 @@ class ChatGptRealtimeSession(
     private val instructions: String = VOICE_INSTRUCTIONS,
     /** The user said something (as OpenAI hears them): for telling their yes from the assistant's own words. */
     private val onUserWords: () -> Unit = {},
+    /** A finished turn of the conversation (the user's words, or what the voice said), e.g. for the history. */
+    private val onTurn: (ChatTurn) -> Unit = {},
+    /** What the phone remembers from before, for each look-up: it can change during the conversation. */
+    private val remembered: suspend () -> String? = { null },
 ) : VoiceSession {
     override val name: String = "ChatGPT voice (GPT-Live)"
 
@@ -631,10 +635,12 @@ class ChatGptRealtimeSession(
         text: String,
     ) {
         if (text.isBlank()) return
+        val turn = ChatTurn(role, text)
         synchronized(transcript) {
-            transcript += ChatTurn(role, text)
+            transcript += turn
             while (transcript.size > MAX_TRANSCRIPT) transcript.removeAt(0)
         }
+        onTurn(turn)
     }
 
     /**
@@ -673,7 +679,7 @@ class ChatGptRealtimeSession(
                 history = history.takeLast(CONSULT_HISTORY),
                 userText = question,
                 style = ReplyStyle.SPOKEN,
-                context = DeviceContext.describe(),
+                context = listOfNotNull(DeviceContext.describe(), remembered()).joinToString("\n"),
                 webSearch = true,
                 tools = tools,
             )
@@ -758,7 +764,8 @@ class ChatGptRealtimeSession(
                 "When a question needs facts you are not sure of, current information, or the exact time, or when the user wants " +
                 "something done on their phone or watch (a note, a calendar event, a reminder, a timer or an alarm, music or volume, " +
                 "the ringer or Do Not Disturb, ringing the phone to find it, battery levels, reading their notes or calendar, " +
-                "texting or calling someone, reading or answering the messages they got, opening an app, directions to a place, " +
+                "texting or calling someone, reading or answering the messages they got, opening an app or doing something in one " +
+                "(reading the newest chat in a chat app, the newest emails, searching in an app), directions to a place, " +
                 "or the flashlight), " +
                 "or when they tell you their job, sport or hobby or ask you to dress up or change clothes (you are Buddy, the little " +
                 "mascot on their watch, and the client can dress you), " +
@@ -766,6 +773,9 @@ class ChatGptRealtimeSession(
                 "unless the result says so. If a request misses something it needs, like how long a timer should run, ask for that first. " +
                 "Before a message is sent or a call is made, the result gives you what to read back: read it back and ask; only when the " +
                 "user answers, delegate their yes or no. " +
+                "The client remembers across conversations: when the user tells you something about themselves worth keeping (their " +
+                "name, family, work, places, what they like) or asks you to remember or forget something, or asks about an earlier " +
+                "conversation, delegate it. What you already remember, if anything, is at the end of these instructions. " +
                 "When the user says goodbye or that they're done (bye, that's all, stop listening), delegate ending the conversation, " +
                 "then say goodbye in two or three words."
     }

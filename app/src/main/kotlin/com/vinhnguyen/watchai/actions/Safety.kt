@@ -4,6 +4,7 @@ import android.app.KeyguardManager
 import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import com.vinhnguyen.watchai.actions.screen.ScreenActions
 import com.vinhnguyen.watchai.brain.guard.Level
 import com.vinhnguyen.watchai.brain.guard.Presence
 
@@ -25,8 +26,19 @@ object Safety {
             PhoneActions.SET_RINGER to Level.LOCAL,
             PhoneActions.DO_NOT_DISTURB to Level.LOCAL,
             PhoneShortcuts.OPEN_APP to Level.LOCAL,
+            // Only reads back; the app is turned on with the yes below.
+            PhoneShortcuts.TURN_ON_APP to Level.LOCAL,
             PhoneShortcuts.NAVIGATE to Level.LOCAL,
             PhoneShortcuts.FLASHLIGHT to Level.LOCAL,
+            // Using an app: looking at its controls, tapping, typing and scrolling. A tap that sends, pays,
+            // posts or deletes waits for a yes (the phone's model judges it), and apps Buddy stays out of are refused (AppLimits).
+            ScreenActions.LOOK to Level.LOCAL,
+            ScreenActions.FIND to Level.LOCAL,
+            ScreenActions.TAP to Level.LOCAL,
+            ScreenActions.TYPE to Level.LOCAL,
+            ScreenActions.SCROLL to Level.LOCAL,
+            ScreenActions.BACK to Level.LOCAL,
+            ScreenActions.READ to Level.PRIVATE,
             PhoneActions.LIST_NOTES to Level.PRIVATE,
             PhoneActions.LIST_EVENTS to Level.PRIVATE,
             ReachActions.READ_MESSAGES to Level.PRIVATE,
@@ -36,6 +48,11 @@ object Safety {
             ReachActions.CALL to Level.OUTBOUND,
             // A no is harmless; the Guard checks a yes as outbound.
             ReachActions.CONFIRM to Level.LOCAL,
+            // Buddy's memory, on the phone: only what the user just said is kept (MemoryActions), and the
+            // conversations it finds were ChatGPT's own already.
+            MemoryActions.REMEMBER to Level.LOCAL,
+            MemoryActions.FORGET to Level.LOCAL,
+            MemoryActions.RECALL to Level.LOCAL,
         )
 
     /** What the phone's own model is told it's reading, per tool. */
@@ -44,7 +61,14 @@ object Safety {
             ReachActions.READ_MESSAGES to "messages people sent",
             PhoneActions.LIST_NOTES to "notes",
             PhoneActions.LIST_EVENTS to "calendar events",
+            ScreenActions.READ to "phone screen (an app the user opened: their chats, emails, whatever it shows)",
         )
+
+    /**
+     * Private tools whose data may go to ChatGPT (cleaned) when the user turns "Private on the phone"
+     * off in Settings. What's on an app's screen isn't one of them: it always stays on the phone.
+     */
+    val MAY_GO_TO_CLOUD: Set<String> = setOf(ReachActions.READ_MESSAGES, PhoneActions.LIST_NOTES, PhoneActions.LIST_EVENTS)
 }
 
 /**
@@ -80,55 +104,4 @@ class OwnerPresence(
                 AudioDeviceInfo.TYPE_USB_HEADSET,
             )
     }
-}
-
-/**
- * Apps whose notifications Buddy never reads, even with notification access: banking, payments,
- * password managers, authenticators and crypto wallets. Codes from ordinary text messages are
- * masked on the way to the model instead.
- */
-object SensitiveApps {
-    private val PACKAGES =
-        setOf(
-            // Authenticators and password managers.
-            "com.google.android.apps.authenticator2",
-            "com.azure.authenticator",
-            "com.authy.authy",
-            "com.x8bit.bitwarden",
-            "com.agilebits.onepassword",
-            "com.lastpass.lpandroid",
-            "com.dashlane",
-            "com.keepersecurity",
-            "keepass2android.keepass2android",
-            "com.kunzisoft.keepass.free",
-            "com.samsung.android.samsungpassautofill",
-            // Payments and wallets.
-            "com.paypal.android.p2pmobile",
-            "com.google.android.apps.walletnfcrel",
-            "com.samsung.android.spay",
-            "com.klarna.android",
-            // Banks.
-            "de.number26.android",
-            "com.revolut.revolut",
-            "com.starfinanz.smob.android.sfinanzstatus",
-            "com.starfinanz.smob.android.sbanking",
-            "de.dkb.portalapp",
-            "de.comdirect.android",
-            "de.commerzbanking.mobil",
-            "com.db.pwcc.dbmobile",
-            "de.ingdiba.bankingapp",
-            "de.consorsbank",
-            "de.postbank.finanzassistent",
-            "com.c24.bankapp",
-            "de.traderepublic.app",
-            "com.wise.android",
-            // Crypto.
-            "com.coinbase.android",
-            "com.binance.dev",
-            "com.kraken.trade",
-            "com.krakenfutures",
-        )
-    private val WORDS = listOf("bank", "authenticator", "password", "passwort", "wallet", "crypto", "finanz", "sparkasse", "volksbank", "raiffeisen")
-
-    fun hidden(packageName: String): Boolean = packageName in PACKAGES || WORDS.any { packageName.contains(it, ignoreCase = true) }
 }

@@ -49,6 +49,7 @@ class GuardTest {
         phone: FakePhone,
         reader: LocalReader? = null,
         reply: PrivateReply? = null,
+        toCloud: Set<String> = emptySet(),
     ) = Guard(
         inner = phone,
         levels = levels,
@@ -61,6 +62,7 @@ class GuardTest {
         reply = reply,
         stopTool = "end_conversation",
         onStop = { stops++ },
+        toCloud = toCloud,
         now = { clock },
     )
 
@@ -183,6 +185,7 @@ class GuardTest {
                     question: String,
                     what: String,
                     data: String,
+                    language: String?,
                 ): String = "You have a message from Anna about dinner, code 482913"
             }
         val g = guard(FakePhone(messages = "Anna: \"Dinner at 8? Code 482913\""), reader, reply = { answer ->
@@ -223,6 +226,7 @@ class GuardTest {
                     question: String,
                     what: String,
                     data: String,
+                    language: String?,
                 ): String {
                     seen += data
                     return "ok"
@@ -233,7 +237,8 @@ class GuardTest {
             true
         })
         g.run("read_messages", "{}", ToolContext("any messages?"))
-        g.run("read_messages", "{}", ToolContext("what's the Google code?"))
+        // The user asked for the code (in any language): the cloud model says so with details.
+        g.run("read_messages", """{"instruction":"read out the Google code","details":true}""", ToolContext("¿cuál es el código de Google?"))
         assertThat(seen[0]).doesNotContain("482913")
         assertThat(seen[1]).contains("482913")
     }
@@ -268,5 +273,78 @@ class GuardTest {
         }
         listOf("[phone number hidden]", "[code hidden]", "[link to evil.example]", "[IBAN hidden]", "[card number hidden]", "[email address hidden]")
             .forEach { assertThat(out).contains(it) }
+    }
+
+    /** Remembers what the phone's model was asked, and in which language; answers on the phone. */
+    private class AskedReader : LocalReader {
+        var question = ""
+        var language: String? = null
+
+        override suspend fun read(
+            question: String,
+            what: String,
+            data: String,
+        ): String {
+            this.question = question
+            return "Anna asks about dinner"
+        }
+
+        override suspend fun answer(
+            question: String,
+            what: String,
+            data: String,
+            language: String?,
+        ): String {
+            this.language = language
+            return read(question, what, data)
+        }
+    }
+
+    @Test
+    fun `the cloud model's instruction becomes the phone model's task, and the data stays on the phone`() = runBlocking {
+        val reader = AskedReader()
+        var said = ""
+        val g = guard(FakePhone(messages = "Anna: dinner at 8?"), reader = reader, reply = { answer ->
+            said = answer()
+            true
+        })
+        val out = g.run("read_messages", """{"instruction":"say who wrote the newest message and what it says"}""", ToolContext("what's new in my chats?"))
+        assertThat(out).isEqualTo(TOLD_ON_PHONE)
+        assertThat(reader.question).contains("what's new in my chats?")
+        assertThat(reader.question).contains("say who wrote the newest message and what it says")
+        assertThat(said).isEqualTo("Anna asks about dinner")
+    }
+
+    @Test
+    fun `only the tools the user allows go to the cloud model`() = runBlocking {
+        val phone = FakePhone(messages = "Anna: dinner at 8?")
+        val told = guard(phone, reply = { true }).run("read_messages", "{}", ToolContext("any news?"))
+        assertThat(told).isEqualTo(TOLD_ON_PHONE)
+        val cloud = guard(phone, reply = { true }, toCloud = setOf("read_messages")).run("read_messages", "{}", ToolContext("any news?"))
+        assertThat(cloud).contains("dinner at 8")
+    }
+
+    @Test
+    fun `the user's language tag goes as it is to the phone's model and its voice`() = runBlocking {
+        val reader = AskedReader()
+        var told: String? = null
+        val reply =
+            object : PrivateReply {
+                override suspend fun tell(answer: suspend () -> String): Boolean = error("the language must be passed")
+
+                override suspend fun tell(
+                    language: String?,
+                    answer: suspend () -> String,
+                ): Boolean {
+                    told = language
+                    answer()
+                    return true
+                }
+            }
+        val g = guard(FakePhone(messages = "Anna: dinner at 8?"), reader = reader, reply = reply)
+        g.run("read_messages", """{"instruction":"say who wrote and what they want","language":"zh-Hant-TW"}""", ToolContext("…"))
+        assertThat(told).isEqualTo("zh-Hant-TW")
+        assertThat(reader.language).isEqualTo("zh-Hant-TW")
+        assertThat(reader.question).contains("say who wrote and what they want")
     }
 }

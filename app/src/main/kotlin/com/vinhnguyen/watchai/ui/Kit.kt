@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -36,14 +37,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -51,6 +56,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -62,6 +68,8 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.vinhnguyen.watchai.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /*
  * The few pieces every screen is made of. Glass is Kyant's Liquid Glass for Compose (Apache-2.0):
@@ -137,6 +145,8 @@ fun Item(
     danger: Boolean = false,
     last: Boolean = false,
     onClick: (() -> Unit)? = null,
+    /** In place of [painter]: e.g. an app's own icon ([AppIcon]). */
+    leading: @Composable (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
 ) {
     val p = LocalPalette.current
@@ -145,11 +155,16 @@ fun Item(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            painter?.let {
-                Box(Modifier.size(32.dp).clip(RoundedCornerShape(9.dp)).background(p.surfaceHigh), contentAlignment = Alignment.Center) {
-                    Icon(it, contentDescription = null, tint = if (danger) p.danger else p.text, modifier = Modifier.size(18.dp))
-                }
+            if (leading != null) {
+                leading()
                 Spacer(Modifier.width(14.dp))
+            } else {
+                painter?.let {
+                    Box(Modifier.size(32.dp).clip(RoundedCornerShape(9.dp)).background(p.surfaceHigh), contentAlignment = Alignment.Center) {
+                        Icon(it, contentDescription = null, tint = if (danger) p.danger else p.text, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(14.dp))
+                }
             }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = if (danger) p.danger else p.text)
@@ -161,10 +176,27 @@ fun Item(
             }
         }
         if (!last) {
-            Box(Modifier.padding(start = if (painter != null) 62.dp else 16.dp).fillMaxWidth().height(0.5.dp).background(p.separator))
+            Box(Modifier.padding(start = if (painter != null || leading != null) 62.dp else 16.dp).fillMaxWidth().height(0.5.dp).background(p.separator))
         }
     }
 }
+
+/** An installed app's own icon, loaded off the main thread; an empty tile until it's there. */
+@Composable
+fun AppIcon(
+    packageName: String,
+    size: Dp = 32.dp,
+) {
+    val context = LocalContext.current
+    val icon by produceState<ImageBitmap?>(null, packageName) {
+        value = withContext(Dispatchers.IO) { runCatching { context.packageManager.getApplicationIcon(packageName).toBitmap(ICON_PX, ICON_PX).asImageBitmap() }.getOrNull() }
+    }
+    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.28f)).background(Color.White.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+        icon?.let { Image(it, contentDescription = null, modifier = Modifier.size(size)) }
+    }
+}
+
+private const val ICON_PX = 96
 
 /** Switches in the app's colours: the thumb stays visible when off, on a dark page too. */
 @Composable

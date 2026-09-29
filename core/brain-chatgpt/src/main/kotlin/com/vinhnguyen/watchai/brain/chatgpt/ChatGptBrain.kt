@@ -368,6 +368,8 @@ public class ChatGptBrain(
         const val RETRY_BASE_MS = 400L
         const val MAX_ERROR_BODY = 8_192
         const val DIAGNOSTIC_CHARS = 400
-        const val MAX_TOOL_ROUNDS = 4
+
+        /** Using an app takes several steps: open it, look, search, open a chat, read. */
+        const val MAX_TOOL_ROUNDS = 12
     }
 }

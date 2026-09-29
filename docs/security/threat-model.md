@@ -1,7 +1,7 @@
 # Threat model — M1 (phone only), 2026-09-27
 
 Scope: the Android app with the ChatGPT and on-device brains. No servers of ours.
-Assets: ChatGPT tokens (access + rotating refresh), conversation text (memory only), flagged
+Assets: ChatGPT tokens (access + rotating refresh), conversation text (History, encrypted, 30 days), flagged
 reports, the on-device model file, the app's integrity.
 
 ```

@@ -72,6 +72,7 @@ private fun describe(e: ActionLogStore.Item): Pair<String, Int> = when (e.tool) 
     PhoneActions.SET_RINGER, PhoneActions.DO_NOT_DISTURB -> "Ringer or Do Not Disturb" to R.drawable.sym_ring_volume
     PhoneActions.DEVICE_STATUS -> "Checked the battery" to R.drawable.sym_bolt
     PhoneShortcuts.OPEN_APP -> "Opened an app" to R.drawable.sym_bolt
+    PhoneShortcuts.TURN_ON_APP -> "Turned an app on for Buddy" to R.drawable.sym_lock
     PhoneShortcuts.NAVIGATE -> "Opened directions" to R.drawable.sym_directions
     PhoneShortcuts.FLASHLIGHT -> "Flashlight" to R.drawable.sym_flashlight_on
     ReachActions.SEND_TEXT -> "A text" to R.drawable.sym_chat_bubble
@@ -89,9 +90,9 @@ private fun outcome(e: ActionLogStore.Item): String = when (e.outcome) {
     else -> if (e.tool == ReachActions.CONFIRM && e.level == "OUTBOUND") "went out" else "done"
 }
 
-private fun time(at: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(at))
+internal fun time(at: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(at))
 
-private fun day(at: Long): String {
+internal fun day(at: Long): String {
     val then = Calendar.getInstance().apply { timeInMillis = at }
     val today = Calendar.getInstance()
     val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }

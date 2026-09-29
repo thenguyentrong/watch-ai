@@ -36,10 +36,10 @@ Every tool call goes through `Guard` (`core/brain/.../guard/Guard.kt`) before it
 | Level | What | Example |
 |---|---|---|
 | `LOOKUP` | Nothing personal, nothing changes | the time, the battery |
-| `LOCAL` | Small, on the phone, can be undone | a timer, a note, the flashlight, opening an app |
-| `PRIVATE` | Reads your data or other people's words, which stay on the phone | messages, notes, the calendar |
-| `OUTBOUND` | Leaves the phone or can't be undone | a text, a reply, a call |
-| `NEVER` | Never, whatever the model says | |
+| `LOCAL` | Small, on the phone, can be undone | a timer, a note, the flashlight, opening an app, tapping and typing in an app |
+| `PRIVATE` | Reads your data or other people's words, which stay on the phone | messages, notes, the calendar, what's on an app's screen |
+| `OUTBOUND` | Leaves the phone or can't be undone | a text, a reply, a call, a tap on Send, Pay or Delete in an app |
+| `NEVER` | Never, whatever the model says | banking, payment and password apps, the phone's settings |
 
 Outbound actions are read back and only happen after your yes, said in a later turn, within two
 minutes, while you're there (watch unlocked on your wrist, phone unlocked, or earbuds in), at most ten
@@ -105,6 +105,16 @@ the user" note.
 
 **"Set a timer for ten minutes."** `LOCAL`: it runs right away, and the timer pop-up shows on the phone.
 
+**"What's the newest chat in my chat app?"** ChatGPT opens the app, looks at its controls (`look_at_screen`:
+labels only, list entries as numbers), finds the chat by the name the user said, taps it (Gemma first
+checks the tap only opens something), then calls `read_screen` with "say who wrote the newest message
+and what it says" and the user's language. Gemma reads the screen on the phone and the phone says it,
+in that language. ChatGPT never sees the chat. Nothing in the code depends on the app or the language.
+
+**"Remember that my sister is called Mai."** ChatGPT calls `remember` (`LOCAL`, only right after the user
+spoke). It's kept encrypted on the phone and shown in History; the next conversation, on the watch or
+the phone, starts with it and with the last conversations, so "text my sister" finds Mai.
+
 ---
 
 ## Modules
@@ -119,7 +129,7 @@ the user" note.
 | `core/buddy`, `core/buddy-ui` | Buddy's shapes, faces, moods and drawing (ported from bloub, MIT). |
 | `core/security` | Keystore + Tink vault, log redaction, screen protection. |
 | `core/testing` | Fakes and synthetic test data. |
-| `app` | Phone app: Buddy, conversations, actions, the gate, privacy screens, Buddy Plus. |
+| `app` | Phone app: Buddy, conversations, actions (incl. using apps on screen), the gate, memory and History, the apps Buddy can use, privacy screens, Buddy Plus. |
 | `wear` | Watch app: face, conversations through the phone, "Hey Buddy", Learn my voice. |
 
 The decisions behind the big choices are in [docs/adr](adr/).

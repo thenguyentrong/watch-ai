@@ -150,7 +150,7 @@ class VoiceLabViewModel(
                         graph.guard(
                             Toolboxes(listOf(graph.tools, ConversationActions({ (session as? ChatGptRealtimeSession)?.endSoon() }, graph.logger))),
                             OwnerPresence(graph.appContext) { false },
-                            VoiceReply(graph.speech, graph.cards, viewModelScope) { session as? ChatGptRealtimeSession },
+                            VoiceReply(graph.speech, graph.cards, viewModelScope, graph.languages) { session as? ChatGptRealtimeSession },
                         ),
                         graph.logger,
                         voice = _state.value.voice,

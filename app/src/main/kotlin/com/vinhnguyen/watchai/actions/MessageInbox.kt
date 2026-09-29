@@ -80,12 +80,14 @@ class MessageInbox {
 
 /** Fills [MessageInbox] from the phone's notifications (the user turns it on in Android's settings). */
 class BuddyNotificationListener : NotificationListenerService() {
-    private val inbox get() = (application as WatchAiApp).graph.inbox
+    private val graph get() = (application as WatchAiApp).graph
+    private val inbox get() = graph.inbox
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
-        // Banking, payments, password managers, authenticators: never read, whatever they post.
-        if (SensitiveApps.hidden(sbn.packageName)) return
+        // Password managers, authenticators, payment and system apps: never kept, whatever they post. The rest waits
+        // in memory; only the apps the user turned on are read (ReachActions).
+        if (!graph.limits.keepsMessages(sbn.packageName)) return
         val n = sbn.notification
         // A group summary repeats the chats inside it.
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return

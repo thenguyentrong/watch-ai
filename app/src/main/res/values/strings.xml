@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Buddy</string>
+    <string name="accessibility_description">Lets Buddy use apps for you when you ask by voice: open a chat, search, read what is on the screen and tap. What is on the screen is read on your phone and never sent to ChatGPT. Anything that sends, pays, posts or deletes waits for your yes. Buddy never looks at banking, payment, password or settings apps.</string>
 </resources>

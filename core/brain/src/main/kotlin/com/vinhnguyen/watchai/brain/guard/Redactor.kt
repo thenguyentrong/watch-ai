@@ -54,27 +54,73 @@ public object Redactor {
         }
         s = IBAN.replace(s) { m -> if (ibanValid(m.value)) "[IBAN hidden]".also { hidden += Kind.IBAN } else m.value }
         s = CARD.replace(s) { m -> if (luhn(m.value.filter(Char::isDigit))) "[card number hidden]".also { hidden += Kind.CARD } else m.value }
-        PASSWORDS.forEach { pattern ->
-            s = pattern.replace(s) { m ->
-                hidden += Kind.PASSWORD
-                m.groupValues[1] + m.groupValues[2] + "[hidden]"
-            }
-        }
         // Phone numbers before codes, so a number isn't cut into "codes" with half of it left.
         s = PHONE.replace(s) { m ->
             val digits = m.value.count(Char::isDigit)
             if (digits in 8..15 && !DATE.matches(m.value.trim())) "[phone number hidden]".also { hidden += Kind.PHONE } else m.value
         }
-        if (CODE_WORDS.containsMatchIn(s)) {
-            CODES.forEach { pattern ->
-                s = pattern.replace(s) {
-                    hidden += Kind.CODE
-                    "[code hidden]"
-                }
+        s = codes(s, hidden)
+        s = LONG_TOKEN.replace(s) { m -> if (looksRandom(m.value)) "[key hidden]".also { hidden += Kind.KEY } else m.value }
+        s = SECRET.replace(s) {
+            hidden += Kind.PASSWORD
+            "[hidden]"
+        }
+        return Cleaned(s, hidden)
+    }
+
+    /**
+     * One-time codes, in whatever language or digits the message is written: nothing here looks for
+     * a word like "code". Shapes that are codes anyway (G-482913, X7K9PQ) and bare six-digit numbers
+     * always go; other bare numbers of 4 to 8 digits only in a short message, as a code's is. A year,
+     * a date, a time or a price stays.
+     */
+    private fun codes(
+        text: String,
+        hidden: MutableList<Kind>,
+    ): String {
+        var s = text
+        for (pattern in SHAPED_CODES) {
+            s = pattern.replace(s) {
+                hidden += Kind.CODE
+                "[code hidden]"
             }
         }
-        s = LONG_TOKEN.replace(s) { m -> if (looksRandom(m.value)) "[key hidden]".also { hidden += Kind.KEY } else m.value }
-        return Cleaned(s, hidden)
+        val before = s
+        s = BARE_NUMBER.replace(before) { m -> if (isCode(before, m)) "[code hidden]".also { hidden += Kind.CODE } else m.value }
+        return s
+    }
+
+    private fun isCode(
+        text: String,
+        m: MatchResult,
+    ): Boolean {
+        val digits = m.value.filter(Char::isDigit)
+        if (priced(text, m.range)) return false
+        if (digits.length == 6) return true
+        val value = digits.fold(0L) { n, c -> n * 10 + Character.digit(c, 10) }
+        if (digits.length == 4 && value in YEARS) return false
+        return messageLength(text, m.range) <= SHORT_MESSAGE
+    }
+
+    /** A currency sign right before or after it, in any currency: "12,50 €", "₹4999", "$ 1299". */
+    private fun priced(
+        text: String,
+        range: IntRange,
+    ): Boolean {
+        fun currency(at: Int) = at in text.indices && Character.getType(text[at]) == Character.CURRENCY_SYMBOL.toInt()
+        val before = if (range.first >= 2 && text[range.first - 1] == ' ') range.first - 2 else range.first - 1
+        val after = if (range.last + 2 < text.length && text[range.last + 1] == ' ') range.last + 2 else range.last + 1
+        return currency(before) || currency(after)
+    }
+
+    /** How long the one message around [range] is: the data puts " | " or a new line between messages. */
+    private fun messageLength(
+        text: String,
+        range: IntRange,
+    ): Int {
+        val start = SEPARATORS.maxOf { sep -> text.lastIndexOf(sep, range.first).let { if (it < 0) 0 else it + sep.length } }
+        val end = SEPARATORS.minOf { sep -> text.indexOf(sep, range.last).let { if (it < 0) text.length else it } }
+        return end - start
     }
 
     private val PRIVATE_KEY = Regex("""-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)""")
@@ -89,30 +135,32 @@ public object Redactor {
     private val EMAIL = Regex("""\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b""")
     private val IBAN = Regex("""\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b""")
     private val CARD = Regex("""(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)""")
-    private val PASSWORDS =
-        listOf(
-            Regex("""(?i)\b(password|passwort|kennwort|passcode)(\s*(?:[:=]|\bis\b|\bist\b|\blautet\b)\s*)(\S+)"""),
-            // Short words only with a colon or an equals sign: "PIN: 1234", not "the pin is on the map".
-            Regex("""(?i)\b(pwd|pw|pin)(\s*[:=]\s*)(\S+)"""),
-        )
 
-    /** Words that make a short number in the same text a one-time code rather than a count or a year. */
-    private val CODE_WORDS =
-        Regex(
-            """(?i)(code|otp|\btan\b|mtan|pushtan|passcode|verif|one[- ]time|log ?in|sign[- ]?in|2fa|authenticat|""" +
-                """sicherheits|bestätigung|bestaetigung|prüf|zugang|einmal|código|codigo|vérification|kod\b|kode\b|codice)""",
-        )
-    private val CODES =
+    /**
+     * A word of letters and digits, like most passwords ("Sonne123", "hunter2!"), found by its shape
+     * rather than by a word like "password" before it, so it works whatever the language. Latin
+     * letters only: passwords are typed on a keyboard, and scripts without spaces (Chinese, Thai)
+     * would otherwise turn a whole sentence into one "word". Dates, versions and links have their own rules.
+     */
+    private val SECRET =
+        Regex("""(?<![\x21-\x7E])(?=[\x21-\x7E]*[A-Za-z])(?=[\x21-\x7E]*[0-9])[\x21-\x2C\x30-\x39\x3B-\x7E]{6,}(?![\x21-\x7E])""")
+
+    private val SHAPED_CODES =
         listOf(
             // G-123456, Google's style.
             Regex("""\b[A-Z]-\d{4,8}\b"""),
-            // 123 456 and 123-456.
-            Regex("""(?<![\d.,:/])\d{3}[ -]\d{3}(?![\d.,:/]?\d)"""),
-            // 4 to 8 digits on their own, not part of a date, a time, a price or a longer number.
-            Regex("""(?<!\d|\d[.:/,])\d{4,8}(?!\d|[.:/,]\d)"""),
             // Letters and digits mixed, all caps, like X7K9PQ.
             Regex("""\b(?=[A-Z0-9]*\d[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8}\b"""),
         )
+
+    /** 4 to 8 digits of any script on their own (or 123 456), not part of a date, a time, a price or a longer number. */
+    private val BARE_NUMBER =
+        Regex("""(?<!\p{Nd}|\p{Nd}[.:/,])(?:\p{Nd}{3}[ -]\p{Nd}{3}|\p{Nd}{4,8})(?!\p{Nd}|[.:/,]\p{Nd})""")
+    private val YEARS = 1900L..2099L
+
+    /** A code comes in a short message (an SMS is at most 160 letters); in a long one, a number is more often something else. */
+    private const val SHORT_MESSAGE = 200
+    private val SEPARATORS = listOf(" | ", "\n")
     private val PHONE =
         Regex(
             """(?<![\w+])(?:\+|00)\d[\d \-/().]{6,20}\d|(?<!\w)0\d{2,5}[ \-/.]?\d[\d \-/.]{4,14}\d|""" +

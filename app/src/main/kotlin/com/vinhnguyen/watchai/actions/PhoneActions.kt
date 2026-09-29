@@ -366,7 +366,7 @@ class PhoneActions(
                 ToolSpec(
                     LIST_NOTES,
                     "Read the user's newest notes.",
-                    """{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":false}""",
+                    """{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20},"instruction":{"type":"string","description":"In English: exactly what the phone should find in it and tell the user."},"language":{"type":"string","description":"The language the user is speaking, as a BCP 47 tag: the phone answers and speaks in it."},"details":{"type":"boolean","description":"True only when the user asked for a code, a number or a link itself."}},"additionalProperties":false}""",
                 ),
                 ToolSpec(
                     ADD_EVENT,
@@ -376,7 +376,7 @@ class PhoneActions(
                 ToolSpec(
                     LIST_EVENTS,
                     "Read the user's calendar between two times (at most 31 days). Defaults to today.",
-                    """{"type":"object","properties":{"from":{"type":"string","description":"$LOCAL_TIME"},"to":{"type":"string","description":"$LOCAL_TIME"}},"additionalProperties":false}""",
+                    """{"type":"object","properties":{"from":{"type":"string","description":"$LOCAL_TIME"},"to":{"type":"string","description":"$LOCAL_TIME"},"instruction":{"type":"string","description":"In English: exactly what the phone should find in it and tell the user."},"language":{"type":"string","description":"The language the user is speaking, as a BCP 47 tag: the phone answers and speaks in it."},"details":{"type":"boolean","description":"True only when the user asked for a code, a number or a link itself."}},"additionalProperties":false}""",
                 ),
                 ToolSpec(
                     ADD_REMINDER,

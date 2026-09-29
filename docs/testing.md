@@ -51,6 +51,34 @@ adb shell am broadcast -n com.vinhnguyen.watchai/.debug.TestHooks --es page safe
   `safety`, `inbox`, `plus`, `look`, `voice_lab`, `buddies`.
 - `--es card` shows a made-up pop-up: `timer`, `note`, `app`, `text`, `call`, `place`, `messages`.
 - `--es check speak` tries the phone's own voice (add `--ez aloud true` to hear it).
+- `--es screen <tool>` runs one screen tool through the real Guard on the app in front (Buddy's
+  accessibility service has to be on): `look_at_screen`, `find_on_screen`, `tap`, `type_text`,
+  `scroll`, `go_back`, `read_screen`, with `--es args '{"id":3}'`. The log (tag `BuddyTest`) shows
+  what ChatGPT would see; for `read_screen` only how long the phone took and how many words it said,
+  never what. Add `--ez aloud true` to hear it.
+
+```bash
+adb shell am broadcast -n com.vinhnguyen.watchai/.debug.TestHooks --es screen look_at_screen
+adb shell am broadcast -n com.vinhnguyen.watchai/.debug.TestHooks --es screen read_screen --es args '{"instruction":"say who wrote the newest message"}' --ez aloud true
+```
+
+Gemma's calls, with made-up inputs from the command line (so no language or app is written into the
+code, and the answers can be logged):
+
+- `--es check answer --es data '<messages>' --es language <tag>`: its answer, the language it came
+  out in, and whether the phone has an offline voice for it.
+- `--es check tap --es app <name> --es words '<label>' [--es name <view id>] [--ez list true]`:
+  `moves` or `does`.
+- `--es check app --es label <name> --es pkg <package>`: `money`, `secrets` or `other`.
+- `--es limits <package>`: whether Buddy stays out of an installed app. `--es check voices`: the
+  phone's offline voices.
+- `--es tool <name> --es args '<json>'`: any tool through the real Guard, as if the user had just
+  spoken (for `remember`). `--es check memory`: what a new conversation would start with, as counts;
+  `--ez reveal true` shows it (made-up content only). `--es demo add` / `--es demo remove` puts a
+  made-up conversation into History and takes it out again.
+
+A shell script with many of these lines, pushed with `adb push` and run with `adb shell sh`, keeps
+text in any script intact (Windows can garble it on the command line).
 
 > [!WARNING]
 > Tapping Buddy on the phone starts a real ChatGPT conversation, with the microphone on.

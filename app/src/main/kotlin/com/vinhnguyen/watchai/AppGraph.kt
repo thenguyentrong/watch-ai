@@ -6,9 +6,12 @@ import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.vinhnguyen.watchai.actions.ActionLogStore
+import com.vinhnguyen.watchai.actions.AppLimits
 import com.vinhnguyen.watchai.actions.CardHub
 import com.vinhnguyen.watchai.actions.Contacts
 import com.vinhnguyen.watchai.actions.ConversationActions
+import com.vinhnguyen.watchai.actions.Memory
+import com.vinhnguyen.watchai.actions.MemoryActions
 import com.vinhnguyen.watchai.actions.MessageInbox
 import com.vinhnguyen.watchai.actions.NoteStore
 import com.vinhnguyen.watchai.actions.Pending
@@ -19,8 +22,10 @@ import com.vinhnguyen.watchai.actions.PhoneShortcuts
 import com.vinhnguyen.watchai.actions.ReachActions
 import com.vinhnguyen.watchai.actions.Safety
 import com.vinhnguyen.watchai.actions.UserTurns
+import com.vinhnguyen.watchai.actions.screen.ScreenActions
 import com.vinhnguyen.watchai.brain.Availability
 import com.vinhnguyen.watchai.brain.BrainRouter
+import com.vinhnguyen.watchai.brain.ChatTurn
 import com.vinhnguyen.watchai.brain.Toolbox
 import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptBrain
@@ -47,6 +52,7 @@ import com.vinhnguyen.watchai.plus.Plus
 import com.vinhnguyen.watchai.security.KeystoreVault
 import com.vinhnguyen.watchai.security.TimberBrainLogger
 import com.vinhnguyen.watchai.ui.TestPage
+import com.vinhnguyen.watchai.voice.LanguageId
 import com.vinhnguyen.watchai.voice.LocalSpeech
 import com.vinhnguyen.watchai.watch.WatchCalls
 import kotlinx.coroutines.CoroutineScope
@@ -118,10 +124,41 @@ class AppGraph(
     val inbox = MessageInbox()
     val contacts = Contacts(appContext)
 
-    val shortcuts = PhoneShortcuts(appContext, logger, { foreground.isForeground() }, cards)
+    /** Which language a text is in, told on the phone (for the phone's answers and the voice that says them). */
+    val languages = LanguageId(appContext)
 
-    /** Everything the AI may use in the app (chat and the phone's own voice): the phone's actions, messages and calls, shortcuts. */
-    val tools: Toolbox = Toolboxes(listOf(actions, ReachActions(appContext, contacts, inbox, pending, logger, cards = cards), shortcuts))
+    /** Gemma on this phone: reads private data before ChatGPT gets it, and judges taps and apps. */
+    val reader = GemmaReader(models, onDeviceSettings, engines, logger, languageOf = languages::of)
+
+    /** The apps Buddy may use: only the ones the user turned on; settings, stores, passwords and payments never. */
+    val limits = AppLimits(appContext, reader)
+
+    val shortcuts = PhoneShortcuts(appContext, logger, { foreground.isForeground() }, cards, limits, pending)
+
+    /** Using apps on the phone for the user, once they switch on Buddy's accessibility service. */
+    val screen = ScreenActions(appContext, pending, limits, reader, logger, cards)
+
+    // What Buddy remembers (conversations, the facts the user asked it to keep) gets its own vault and key too.
+    private val memoryVault = KeystoreVault(appContext, logger, alias = "watchai_memory_master_v1", dirName = "memory")
+    val memory = Memory(memoryVault, scope)
+    val memoryActions = MemoryActions(memory, userTurns, logger)
+
+    /** Everything the AI may use in the app (chat and the phone's own voice): the phone's actions, messages and calls, shortcuts, apps, memory. */
+    val tools: Toolbox =
+        Toolboxes(listOf(actions, ReachActions(appContext, contacts, inbox, pending, logger, cards = cards, limits = limits), shortcuts, screen, memoryActions))
+
+    /** What a conversation starts with: what the user asked Buddy to keep, and the last conversations unless they turned that off. */
+    suspend fun remembered(except: String? = null): String? = memory.context(history = settings.rememberChats, except = except)
+
+    /** A finished turn of a conversation for the history, unless the user turned it off; [local] if only the phone's own model heard it. */
+    fun keepTurn(
+        conversation: String,
+        where: String,
+        turn: ChatTurn,
+        local: Boolean = false,
+    ) {
+        if (settings.rememberChats) memory.add(conversation, where, turn.role == ChatTurn.Role.USER, turn.text, local)
+    }
 
     /** Texts, replies and calls Buddy may send in an hour, across all conversations. */
     val budget = Budget(max = OUTBOUND_PER_HOUR, windowMs = HOUR_MS, now = SystemClock::elapsedRealtime)
@@ -135,9 +172,6 @@ class AppGraph(
 
     /** The phone's own voice, for private answers. */
     val speech by lazy { LocalSpeech(appContext) }
-
-    /** Gemma on this phone, reading private data before ChatGPT gets it. */
-    val reader = GemmaReader(models, onDeviceSettings, engines, logger)
 
     /**
      * The gate for one conversation: every tool call of it goes through here (docs/security/agent-safety.md).
@@ -153,18 +187,20 @@ class AppGraph(
         presence = presence,
         budget = budget,
         confirmTool = ReachActions.CONFIRM,
-        reader = if (settings.privateOnPhone) reader else null,
+        reader = reader,
         readable = Safety.READABLE,
         log = actionLog,
-        // On (the default): private things stay on the phone; off: ChatGPT reads them, cleaned.
-        reply = if (settings.privateOnPhone) reply else null,
+        reply = reply,
         stopTool = ConversationActions.END,
         onStop = pending::cancel,
+        // On (the default): private things stay on the phone; off: ChatGPT reads messages, notes and the
+        // calendar, cleaned. What's on an app's screen stays on the phone either way.
+        toCloud = if (settings.privateOnPhone) emptySet() else Safety.MAY_GO_TO_CLOUD,
     )
 
     /** Keeps Gemma loaded while a conversation runs, so reading private data on the phone is quick. Cancel the job to let it go. */
     fun warmReader(): Job = scope.launch {
-        if (!settings.privateOnPhone || gemma.availability() != Availability.Ready) return@launch
+        if (gemma.availability() != Availability.Ready) return@launch
         val held = gemma.preload()
         try {
             awaitCancellation()
@@ -208,13 +244,16 @@ class AppGraph(
         ?: Genes.seedFor(runCatching { session.bearer().accountId }.getOrNull() ?: settings.installId)
     val watchCalls = WatchCalls(this)
 
-    /** "Delete everything": tokens, keys, reports, notes, models, settings. */
+    /** "Delete everything": tokens, keys, reports, notes, what Buddy remembers, models, settings. */
     suspend fun deleteEverything() {
         runCatching { session.signOut() }
         vault.wipe()
         notesVault.wipe()
         actionLog.clear()
         logVault.wipe()
+        memory.clear()
+        limits.clear()
+        memoryVault.wipe()
         models.specs.forEach { models.delete(it) }
         onDeviceSettings.clearAll()
         settings.clearAll()
@@ -254,6 +293,11 @@ class AppSettings(
     var chosenBuddy: Long?
         get() = if (prefs.contains("chosen_buddy")) prefs.getLong("chosen_buddy", 0) else null
         set(value) = prefs.edit { if (value == null) remove("chosen_buddy") else putLong("chosen_buddy", value) }
+
+    /** On by default: conversations are kept 30 days on the phone (History), and the next conversation knows the last ones. */
+    var rememberChats: Boolean
+        get() = prefs.getBoolean("remember_chats", true)
+        set(value) = prefs.edit { putBoolean("remember_chats", value) }
 
     /** GPT-Live voice, chosen in Settings; watch calls use it too. */
     var voice: String

@@ -39,6 +39,7 @@ fun SettingsScreen(
     benchmark: BenchmarkViewModel?,
     offlineReady: Boolean,
     onSafetyCheck: () -> Unit,
+    onApps: () -> Unit,
 ) {
     val p = LocalPalette.current
     var voice by remember { mutableStateOf(settings.voice) }
@@ -67,8 +68,8 @@ fun SettingsScreen(
 
     Group(
         "Privacy",
-        footer = "Chats stay in memory and are gone when you close the app. Your ChatGPT sign-in is encrypted with a key " +
-            "that can't leave this phone. No analytics, no ads, no backups of app data.",
+        footer = "Conversations are kept 30 days, encrypted on this phone, unless you turn that off in History. Your ChatGPT " +
+            "sign-in is encrypted with a key that can't leave this phone. No analytics, no ads, no backups of app data.",
     ) {
         Item(
             "Private things stay on this phone",
@@ -101,8 +102,13 @@ fun SettingsScreen(
             onClick = onSafetyCheck,
         )
         Item(
+            "Apps Buddy can use",
+            subtitle = "Only the apps you turn on; settings, password and payment apps never",
+            onClick = onApps,
+        )
+        Item(
             if (deleted) "Everything was deleted" else "Delete everything",
-            subtitle = "Signs you out and removes the offline model, notes and settings",
+            subtitle = "Signs you out and removes the offline model, notes, history and settings",
             danger = true,
             last = true,
             onClick = { confirm = true },
@@ -125,7 +131,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { confirm = false },
             title = { Text("Delete everything?") },
-            text = { Text("Signs you out of ChatGPT, deletes the offline model, your notes, flagged answers and all settings.") },
+            text = { Text("Signs you out of ChatGPT, deletes the offline model, your notes, what Buddy remembers, flagged answers and all settings.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirm = false

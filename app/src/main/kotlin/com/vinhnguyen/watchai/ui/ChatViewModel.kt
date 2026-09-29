@@ -23,7 +23,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-/** The chat test console. The conversation lives in memory only and is gone when the app closes. */
+/**
+ * The chat test console. Turns ChatGPT answered go to the history like a voice conversation's
+ * (unless that's turned off); the phone's private answers never go anywhere, not even back to ChatGPT
+ * as part of the conversation.
+ */
 class ChatViewModel(
     private val graph: AppGraph,
 ) : ViewModel() {
@@ -61,9 +65,10 @@ class ChatViewModel(
         if (prompt.isEmpty() || _state.value.busy) return
         // A message or a call waiting for a yes goes out only on the user's own later turn.
         graph.userTurns.heard()
+        // A private answer was made on this phone and stays here: it's never part of what goes to a brain.
         val history =
             _state.value.messages
-                .filter { it.error == null && !it.streaming && it.text.isNotEmpty() }
+                .filter { !it.private && it.error == null && !it.streaming && it.text.isNotEmpty() }
                 .map { ChatTurn(it.role, it.text) }
         val answerId = nextId + 1
         _state.update {
@@ -80,8 +85,9 @@ class ChatViewModel(
         job =
             viewModelScope.launch {
                 try {
+                    val context = listOfNotNull(DeviceContext.describe(), graph.remembered(except = conversationId)).joinToString("\n")
                     graph.router
-                        .stream(ChatRequest(conversationId, history, prompt, context = DeviceContext.describe(), tools = guard), snapshot.preference, snapshot.cloudAllowed)
+                        .stream(ChatRequest(conversationId, history, prompt, context = context, tools = guard), snapshot.preference, snapshot.cloudAllowed)
                         .collect { event ->
                             updateMessage(answerId) { m ->
                                 when (event) {
@@ -99,6 +105,14 @@ class ChatViewModel(
                                 }
                             }
                         }
+                    // The chat is part of Buddy's history. A turn only the phone's own model heard stays marked as
+                    // the phone's: History shows it, ChatGPT never gets it.
+                    val answer = _state.value.messages.firstOrNull { it.id == answerId }
+                    if (answer != null && answer.brain != null && answer.error == null && answer.text.isNotBlank()) {
+                        val local = answer.brain != BrainId.CHATGPT
+                        graph.keepTurn(conversationId, IN_CHAT, ChatTurn(ChatTurn.Role.USER, prompt), local)
+                        graph.keepTurn(conversationId, IN_CHAT, ChatTurn(ChatTurn.Role.ASSISTANT, answer.text), local)
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -166,4 +180,8 @@ class ChatViewModel(
         id: Long,
         change: (Message) -> Message,
     ) = _state.update { s -> s.copy(messages = s.messages.map { if (it.id == id) change(it) else it }) }
+
+    private companion object {
+        const val IN_CHAT = "in the chat"
+    }
 }

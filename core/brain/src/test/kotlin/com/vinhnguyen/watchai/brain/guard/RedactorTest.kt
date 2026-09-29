@@ -11,22 +11,31 @@ class RedactorTest {
     @Test
     fun `one-time codes are hidden`() {
         assertThat(clean("G-482913 is your Google verification code.").text).isEqualTo("[code hidden] is your Google verification code.")
-        assertThat(clean("Ihre TAN lautet 482913").text).isEqualTo("Ihre TAN lautet [code hidden]")
         assertThat(clean("Your login code: 482 913").text).isEqualTo("Your login code: [code hidden]")
         assertThat(clean("Use X7K9PQ to sign in").text).isEqualTo("Use [code hidden] to sign in")
         assertThat(clean("Your code is 4829. Don't share it.").text).isEqualTo("Your code is [code hidden]. Don't share it.")
     }
 
+    /** A code is found by its shape, not by a word like "code" next to it: the words around it don't matter. */
     @Test
-    fun `numbers without code words stay`() {
-        val text = "See you at 18:30 on 28.09.2026, table for 4, it was 2024 when we met, costs 12,50 €"
-        assertThat(clean(text).text).isEqualTo(text)
+    fun `one-time codes are hidden whatever the words around them`() {
+        assertThat(clean("您的验证码是482913，请勿泄露").text).isEqualTo("您的验证码是[code hidden]，请勿泄露")
+        assertThat(clean("Ihre TAN lautet 4829").text).isEqualTo("Ihre TAN lautet [code hidden]")
     }
 
     @Test
-    fun `with code words, dates times and prices still stay`() {
-        val text = "Your booking code arrives on 28.09.2026 at 18:30, price 1250,00 €"
+    fun `dates, times, prices and years stay`() {
+        val text = "See you at 18:30 on 28.09.2026, table for 4, it was 2024 when we met, costs 12,50 €"
         assertThat(clean(text).text).isEqualTo(text)
+        assertThat(clean("it costs 1500 €").text).isEqualTo("it costs 1500 €")
+    }
+
+    @Test
+    fun `in a long message, a short number stays, a six-digit one doesn't`() {
+        val long = "Hi! We moved the team dinner to Friday, so please bring the photos from the trip, and tell everyone that the " +
+            "restaurant is the one near the station, room 1204 upstairs, and that we expect about 1500 guests at the fair next week."
+        assertThat(clean(long).text).isEqualTo(long)
+        assertThat(clean("$long Your code: 482913").text).contains("[code hidden]")
     }
 
     @Test
@@ -42,12 +51,19 @@ class RedactorTest {
         assertThat(clean("ref DE00 1234 5678 9012 3456 78").hidden).doesNotContain(Kind.IBAN)
     }
 
+    /** Found by their shape (letters and digits in one word), not by a word like "password" before them. */
     @Test
-    fun `passwords after their word are hidden`() {
+    fun `passwords are hidden`() {
         assertThat(clean("wifi password: hunter2!").text).isEqualTo("wifi password: [hidden]")
         assertThat(clean("Das Passwort ist Sonne123").text).isEqualTo("Das Passwort ist [hidden]")
-        assertThat(clean("PIN: 1234").text).isEqualTo("PIN: [hidden]")
+        assertThat(clean("PIN: 1234").text).isEqualTo("PIN: [code hidden]")
         assertThat(clean("the pin is on the map").text).isEqualTo("the pin is on the map")
+    }
+
+    @Test
+    fun `words with digits that aren't secrets stay`() {
+        val text = "COVID-19 rules, version 2.0.1, meet at 5pm on the 2nd, 4K video, 明天下午3点在2号门见"
+        assertThat(clean(text).text).isEqualTo(text)
     }
 
     @Test

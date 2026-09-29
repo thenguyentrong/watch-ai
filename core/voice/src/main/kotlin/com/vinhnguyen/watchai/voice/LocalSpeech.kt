@@ -41,10 +41,17 @@ class LocalSpeech(
 
     private val lock = Mutex()
 
-    /** [text] spoken, or null when the phone has no offline voice for it or the engine fails. One at a time. */
-    suspend fun synthesize(text: String): Audio? = lock.withLock {
+    /**
+     * [text] spoken in [language] (a BCP 47 tag; null: the phone's own language), or null when the
+     * phone has no offline voice for that language or the engine fails. Never another language's voice
+     * reading it, and never a network voice: the text is private. One at a time.
+     */
+    suspend fun synthesize(
+        text: String,
+        language: String? = null,
+    ): Audio? = lock.withLock {
         if (withTimeoutOrNull(INIT_TIMEOUT_MS) { ready.await() } != true) return@withLock null
-        val voice = offlineVoice() ?: return@withLock null
+        val voice = offlineVoice(language) ?: return@withLock null
         withContext(Dispatchers.IO) {
             // A file in the app's own cache, read and deleted straight away.
             val file = File(appContext.cacheDir, "speech-${UUID.randomUUID()}.wav")
@@ -83,20 +90,33 @@ class LocalSpeech(
         }
     }
 
+    /** The languages the phone can speak offline, as tags, for the checks. */
+    suspend fun languages(): Set<String> {
+        if (withTimeoutOrNull(INIT_TIMEOUT_MS) { ready.await() } != true) return emptySet()
+        return offlineVoices().map { it.locale.language }.toSortedSet()
+    }
+
+    /** Whether the phone has an offline voice for [language] (null: the phone's own language). */
+    suspend fun canSpeak(language: String?): Boolean {
+        if (withTimeoutOrNull(INIT_TIMEOUT_MS) { ready.await() } != true) return false
+        return offlineVoice(language) != null
+    }
+
+    private fun offlineVoices(): List<Voice> = runCatching { tts.voices }.getOrNull().orEmpty().filter {
+        !it.isNetworkConnectionRequired && it.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true
+    }
+
     /**
-     * The best installed voice that works offline. English, since Buddy talks English (the phone's own
-     * English if it has one, like en-GB); the phone's language if there's no English voice.
+     * The best installed offline voice for [language], in its region if the tag has one ("pt-BR"),
+     * else in the phone's region if there's a voice for it. Without a language, the phone's own.
+     * Null when there's no voice for that language: another language's voice would only garble it.
      */
-    private fun offlineVoice(): Voice? {
-        val offline =
-            runCatching { tts.voices }.getOrNull().orEmpty().filter {
-                !it.isNetworkConnectionRequired && it.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true
-            }
+    private fun offlineVoice(language: String?): Voice? {
         val phone = Locale.getDefault()
-        val english = offline.filter { it.locale.language == Locale.ENGLISH.language }
-        return english.filter { it.locale.country == phone.country }.maxByOrNull { it.quality }
-            ?: english.maxByOrNull { it.quality }
-            ?: offline.filter { it.locale.language == phone.language }.maxByOrNull { it.quality }
+        val wanted = language?.let { Locale.forLanguageTag(it) }?.takeIf { it.language.isNotEmpty() } ?: phone
+        val voices = offlineVoices().filter { it.locale.language == wanted.language }
+        val region = wanted.country.ifEmpty { phone.country }
+        return voices.filter { it.locale.country == region }.maxByOrNull { it.quality } ?: voices.maxByOrNull { it.quality }
     }
 
     /** Plays [audio] on the phone, outside a conversation (to hear what the phone's voice sounds like). */

@@ -275,11 +275,11 @@ class ChatGptBrainTest {
     @Test
     fun `a model that keeps calling tools is stopped after a few rounds`() {
         val toolbox = RecordingToolbox()
-        repeat(6) { server.enqueue(Sse.response(functionCall("call_$it", "add_note", """{"text":"x"}"""), Sse.completed())) }
+        repeat(14) { server.enqueue(Sse.response(functionCall("call_$it", "add_note", """{"text":"x"}"""), Sse.completed())) }
         val events = runBlocking { withTimeout(15_000) { brain.stream(request.copy(tools = toolbox)).toList() } }
         assertThat(events.last()).isInstanceOf(ChatEvent.Done::class.java)
-        assertThat(toolbox.calls).hasSize(4)
-        assertThat(server.requestCount).isEqualTo(5)
+        assertThat(toolbox.calls).hasSize(12)
+        assertThat(server.requestCount).isEqualTo(13)
     }
 
     @Test

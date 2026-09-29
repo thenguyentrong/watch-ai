@@ -155,10 +155,10 @@ private fun Card(
     when (card) {
         is BuddyCard.Done -> Header({ Symbol(card.symbol, if (card.symbol == Symbol.CANCEL) Color(0xFFF97066) else accent) }, card.title, card.detail)
 
-        is BuddyCard.App -> Header({ AppIcon(card.packageName) }, card.title, null)
+        is BuddyCard.App -> Header({ AppIcon(card.packageName, CARD_ICON) }, card.title, null)
 
         is BuddyCard.Ask -> {
-            Header({ card.packageName?.let { AppIcon(it) } ?: Symbol(Symbol.PHONE, accent) }, card.title, card.detail, detailLines = 4)
+            Header({ card.packageName?.let { AppIcon(it, CARD_ICON) } ?: Symbol(Symbol.PHONE, accent) }, card.title, card.detail, detailLines = 4)
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 IslandButton("Cancel", filled = false, modifier = Modifier.weight(1f)) { onDecide(false) }
                 IslandButton(card.confirm, filled = true, modifier = Modifier.weight(1f)) { onDecide(true) }
@@ -173,7 +173,7 @@ private fun Card(
         is BuddyCard.Messages -> {
             card.lines.take(3).forEachIndexed { i, line ->
                 if (i > 0) Spacer(Modifier.height(10.dp))
-                Header({ AppIcon(line.packageName) }, line.from, line.text, detailLines = 2)
+                Header({ AppIcon(line.packageName, CARD_ICON) }, line.from, line.text, detailLines = 2)
             }
         }
     }
@@ -204,17 +204,6 @@ private fun Symbol(
 ) {
     Box(Modifier.size(40.dp).clip(CircleShape).background(tint.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
         Icon(painterResource(icon), contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-    }
-}
-
-@Composable
-private fun AppIcon(packageName: String) {
-    val context = LocalContext.current
-    val icon by produceState<ImageBitmap?>(null, packageName) {
-        value = withContext(Dispatchers.IO) { runCatching { context.packageManager.getApplicationIcon(packageName).toBitmap(96, 96).asImageBitmap() }.getOrNull() }
-    }
-    Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(Color.White.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
-        icon?.let { Image(it, contentDescription = null, modifier = Modifier.size(40.dp)) }
     }
 }
 
@@ -323,3 +312,4 @@ private val NightMap =
             timesAssign(calm)
         },
     )
+private val CARD_ICON = 40.dp

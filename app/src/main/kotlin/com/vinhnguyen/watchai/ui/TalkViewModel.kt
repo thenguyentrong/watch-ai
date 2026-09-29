@@ -12,8 +12,6 @@ import com.vinhnguyen.watchai.actions.VoiceReply
 import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.brain.chatgpt.auth.AuthState
-import com.vinhnguyen.watchai.buddy.Mood
-import com.vinhnguyen.watchai.buddy.MoodReader
 import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.voice.ChatGptRealtimeSession
 import com.vinhnguyen.watchai.voice.VoicePhase
@@ -31,6 +29,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.UUID
 
 /**
  * Talking to Buddy on the phone, like on the watch: tap Buddy, talk, tap again or say bye. ChatGPT
@@ -73,9 +72,6 @@ class TalkViewModel(
 
     /** Private answers being said in the phone's own voice; they end with the conversation. */
     private val readouts = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var heard: String? = null
-    private var said: String? = null
-    private var shownMood: Mood? = null
 
     init {
         viewModelScope.launch { runCatching { graph.session.isSignedIn() } }
@@ -125,6 +121,9 @@ class TalkViewModel(
         viewModelScope.launch {
             lock.withLock {
                 endLocked()
+                // The conversation starts knowing what Buddy remembers, and its turns go to the history.
+                val conversation = UUID.randomUUID().toString()
+                val remembered = graph.remembered()
                 val s =
                     ChatGptRealtimeSession(
                         graph.appContext,
@@ -134,13 +133,16 @@ class TalkViewModel(
                         graph.guard(
                             Toolboxes(listOf(graph.tools, ConversationActions({ session?.endSoon() }, graph.logger))),
                             OwnerPresence(graph.appContext) { false },
-                            VoiceReply(graph.speech, graph.cards, readouts) { session },
+                            VoiceReply(graph.speech, graph.cards, readouts, graph.languages) { session },
                         ),
                         graph.logger,
                         voice = graph.settings.voice,
                         idleHangUpMs = IDLE_HANG_UP_MS,
                         onIdle = { end() },
+                        instructions = listOfNotNull(ChatGptRealtimeSession.VOICE_INSTRUCTIONS, remembered).joinToString("\n"),
                         onUserWords = graph.userTurns::heard,
+                        onTurn = { graph.keepTurn(conversation, ON_PHONE, it) },
+                        remembered = { graph.remembered(except = conversation) },
                     )
                 session = s
                 jobs =
@@ -201,6 +203,7 @@ class TalkViewModel(
         session = null
         PhoneTalkService.stop(graph.appContext)
         current.stop()
+        graph.memory.flush()
         readouts.coroutineContext.cancelChildren()
         jobs.forEach { it.cancel() }
         jobs = emptyList()
@@ -208,38 +211,13 @@ class TalkViewModel(
         _state.update { State(reaction = it.reaction, reactionId = it.reactionId) }
     }
 
-    /**
-     * Buddy follows the conversation, and its face the words: the user's thanks and greetings, the
-     * answer's tone. Each mood plays once per turn, as on the watch.
-     */
+    /** Buddy follows the conversation: listening, thinking, talking. */
     private fun show(
         voice: VoiceState,
         onWatch: Boolean,
     ) {
         _state.update { it.copy(phase = voice.phase, detail = voice.detail, onWatch = onWatch) }
-        voice.lastUserText?.takeIf { it != heard }?.let { text ->
-            if (!continues(heard, text)) shownMood = null
-            heard = text
-            react(MoodReader.user(text))
-        }
-        voice.lastAssistantText?.takeIf { it != said }?.let { text ->
-            if (!continues(said, text)) shownMood = null
-            said = text
-            react(MoodReader.assistant(text))
-        }
     }
-
-    private fun react(reaction: Reaction?) {
-        if (reaction == null || reaction.mood == shownMood) return
-        shownMood = reaction.mood
-        _state.update { it.copy(reaction = reaction, reactionId = it.reactionId + 1) }
-    }
-
-    /** The same turn still being written, rather than a new one. */
-    private fun continues(
-        before: String?,
-        now: String,
-    ) = before != null && now.startsWith(before.take(TURN_PREFIX))
 
     /** Leaving the app: with the talk service holding the mic the conversation goes on, otherwise it ends soon. */
     fun onBackground() {
@@ -268,7 +246,7 @@ class TalkViewModel(
         /** Like on the watch: back to rest after 10 s with nobody talking. */
         const val IDLE_HANG_UP_MS = 10_000L
         const val BACKGROUND_GRACE_MS = 30_000L
-        const val TURN_PREFIX = 12
+        const val ON_PHONE = "on the phone"
         const val CARD_MS = 6_000L
         const val LONG_CARD_MS = 12_000L
     }

@@ -71,11 +71,13 @@ enum class Page(
     CHAT("Chat"),
     ABILITIES("What Buddy can do"),
     ACTIVITY("What Buddy did"),
+    HISTORY("History"),
     AI("Your AI"),
     SETTINGS("Settings"),
     PLUS("Buddy Plus"),
     LOOK("Choose your Buddy"),
     SAFETY("See what ChatGPT gets"),
+    APPS("Apps Buddy can use"),
     INBOX("Messages Buddy has"),
     VOICE_LAB("Voice lab", forTesting = true),
     BUDDIES("More Buddies", forTesting = true),
@@ -182,6 +184,8 @@ fun BuddyApp(
 
             Page.ACTIVITY -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { ActivityScreen(graph.actionLog) }
 
+            Page.HISTORY -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { HistoryScreen(graph.memory, graph.settings) }
+
             Page.AI -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { BrainsScreen(pages.brains) }
 
             Page.SETTINGS ->
@@ -193,10 +197,13 @@ fun BuddyApp(
                         benchmark = pages.benchmark,
                         offlineReady = offlineReady,
                         onSafetyCheck = { open(Page.SAFETY) },
+                        onApps = { open(Page.APPS) },
                     )
                 }
 
             Page.SAFETY -> Page(p.title, onBack = { page = Page.SETTINGS }, backdrop = pageBackdrop) { SafetyCheckScreen(graph) }
+
+            Page.APPS -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { AppsScreen(graph.limits) }
 
             Page.INBOX -> Page(p.title, onBack = { page = Page.ABILITIES }, backdrop = pageBackdrop) { InboxScreen(graph.inbox) }
 
@@ -308,6 +315,8 @@ private fun Menu(
         MenuItem(painterResource(R.drawable.sym_chat_bubble), Page.CHAT.title) { onOpen(Page.CHAT) }
         MenuItem(painterResource(R.drawable.sym_bolt), Page.ABILITIES.title) { onOpen(Page.ABILITIES) }
         MenuItem(painterResource(R.drawable.sym_history), Page.ACTIVITY.title) { onOpen(Page.ACTIVITY) }
+        MenuItem(painterResource(R.drawable.sym_forum), Page.HISTORY.title) { onOpen(Page.HISTORY) }
+        MenuItem(painterResource(R.drawable.sym_lock), Page.APPS.title) { onOpen(Page.APPS) }
         MenuItem(painterResource(R.drawable.sym_neurology), Page.AI.title) { onOpen(Page.AI) }
         MenuItem(painterResource(R.drawable.sym_settings), Page.SETTINGS.title) { onOpen(Page.SETTINGS) }
         if (plus.available) MenuItem(painterResource(R.drawable.sym_star), Page.PLUS.title) { onOpen(Page.PLUS) }
