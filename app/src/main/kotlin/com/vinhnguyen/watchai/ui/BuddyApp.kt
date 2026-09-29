@@ -61,6 +61,7 @@ import com.vinhnguyen.watchai.buddy.Act
 import com.vinhnguyen.watchai.buddy.Genes
 import com.vinhnguyen.watchai.buddy.ui.BuddyView
 import com.vinhnguyen.watchai.buddy.ui.accentOf
+import com.vinhnguyen.watchai.plus.Plus
 
 /** Everything behind the menu; the last two are in test builds only. */
 enum class Page(
@@ -72,6 +73,8 @@ enum class Page(
     ACTIVITY("What Buddy did"),
     AI("Your AI"),
     SETTINGS("Settings"),
+    PLUS("Buddy Plus"),
+    LOOK("Choose your Buddy"),
     SAFETY("See what ChatGPT gets"),
     INBOX("Messages Buddy has"),
     VOICE_LAB("Voice lab", forTesting = true),
@@ -108,7 +111,10 @@ fun BuddyApp(
     var menu by rememberSaveable { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop()
     val pageBackdrop = rememberLayerBackdrop()
-    val seed by produceState<Long?>(null) { value = talk.buddySeed() }
+    // The Buddy changes when a Plus user picks another one, or Plus starts or ends.
+    val chosen by graph.chosenBuddy.collectAsStateWithLifecycle()
+    val plusActive by graph.plus.active.collectAsStateWithLifecycle()
+    val seed by produceState<Long?>(null, chosen, plusActive) { value = talk.buddySeed() }
     val genes = remember(seed) { seed?.let { Genes.of(it) } }
     val island by talk.island.collectAsStateWithLifecycle()
     val level by talk.level.collectAsStateWithLifecycle()
@@ -143,6 +149,7 @@ fun BuddyApp(
             when (page) {
                 Page.SAFETY -> Page.SETTINGS
                 Page.INBOX -> Page.ABILITIES
+                Page.LOOK -> Page.PLUS
                 else -> null
             }
     }
@@ -193,6 +200,10 @@ fun BuddyApp(
 
             Page.INBOX -> Page(p.title, onBack = { page = Page.ABILITIES }, backdrop = pageBackdrop) { InboxScreen(graph.inbox) }
 
+            Page.PLUS -> Page(p.title, onBack = { page = null }, backdrop = pageBackdrop) { PlusScreen(graph, onChooseBuddy = { open(Page.LOOK) }) }
+
+            Page.LOOK -> Page(p.title, onBack = { page = Page.PLUS }, backdrop = pageBackdrop) { LookScreen(graph, onPlus = { open(Page.PLUS) }) }
+
             Page.VOICE_LAB ->
                 Page(p.title, onBack = { page = null }, scrolls = false, backdrop = pageBackdrop) { top ->
                     Spacer(Modifier.height(top))
@@ -226,7 +237,7 @@ fun BuddyApp(
             )
         }
         AnimatedVisibility(menu, enter = slideInHorizontally { -it } + fadeIn(), exit = slideOutHorizontally { -it } + fadeOut()) {
-            Menu(talk, genes, backdrop, onOpen = open)
+            Menu(talk, genes, graph.plus, backdrop, onOpen = open)
         }
     }
 }
@@ -235,11 +246,13 @@ fun BuddyApp(
 private fun Menu(
     talk: TalkViewModel,
     genes: Genes?,
+    plus: Plus,
     backdrop: Backdrop,
     onOpen: (Page) -> Unit,
 ) {
     val p = LocalPalette.current
     val auth by talk.auth.collectAsStateWithLifecycle()
+    val supporter by plus.active.collectAsStateWithLifecycle()
     Column(
         Modifier
             .fillMaxHeight()
@@ -268,7 +281,18 @@ private fun Menu(
             }
             Spacer(Modifier.width(14.dp))
             Column {
-                Text("Buddy", style = MaterialTheme.typography.titleLarge, color = p.text)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Buddy", style = MaterialTheme.typography.titleLarge, color = p.text)
+                    // The thank-you mark for Plus.
+                    if (supporter) {
+                        Text(
+                            "Plus",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = p.background,
+                            modifier = Modifier.padding(start = 8.dp).clip(CircleShape).background(p.text).padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                }
                 Text(
                     when (auth) {
                         is AuthState.SignedIn -> "Signed in with ChatGPT"
@@ -286,6 +310,7 @@ private fun Menu(
         MenuItem(painterResource(R.drawable.sym_history), Page.ACTIVITY.title) { onOpen(Page.ACTIVITY) }
         MenuItem(painterResource(R.drawable.sym_neurology), Page.AI.title) { onOpen(Page.AI) }
         MenuItem(painterResource(R.drawable.sym_settings), Page.SETTINGS.title) { onOpen(Page.SETTINGS) }
+        if (plus.available) MenuItem(painterResource(R.drawable.sym_star), Page.PLUS.title) { onOpen(Page.PLUS) }
         if (BuildConfig.DEBUG) {
             Spacer(Modifier.height(18.dp))
             Text("For testing", style = MaterialTheme.typography.labelMedium, color = p.textTertiary, modifier = Modifier.padding(horizontal = 22.dp, vertical = 6.dp))

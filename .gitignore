@@ -14,3 +14,6 @@ captures/
 .env
 .env.*
 .downloads/
+
+# AI coding skills used while building (third-party, licences in their own folder); kept locally, not part of the app.
+.claude/

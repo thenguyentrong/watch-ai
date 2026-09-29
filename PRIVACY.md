@@ -24,9 +24,10 @@ crash reporting of its own.
 | On-device model download | Your phone downloads it from Hugging Face; they see your IP address | To run Gemma on your phone | The model stays until you delete it |
 | Gemini Nano (only if you opt in) | Google's ML Kit sends Google anonymous diagnostics (device model, speed, error codes) | Needed by Google's on-device API | Google's terms apply |
 | Answers you flag | Encrypted on your phone; your question only if you tick the box | To report harmful or wrong answers | Until you delete everything |
+| Buddy Plus (in builds that offer it) | When the app starts, it asks RevenueCat whether you have Plus and what it costs; RevenueCat sees an anonymous id it makes for this install, the app version, basic device info and your IP address. If you buy, the store takes the payment and RevenueCat records the purchase | To sell Plus and bring it back on a new phone | RevenueCat's and the store's terms; nothing from your conversations goes to them |
 | What Buddy did | Encrypted on your phone: the kind of action (a text, a timer) and how it ended, never what was in it | So you can see what Buddy did | 30 days, or until you clear it or delete everything |
 
-International transfers: OpenAI, Hugging Face and Google may process data in the USA, and the
+International transfers: OpenAI, Hugging Face, Google and RevenueCat may process data in the USA, and the
 OpenStreetMap Foundation in the UK (its map tiles come through a worldwide CDN), under their own
 safeguards; this happens only when you use those features.
 

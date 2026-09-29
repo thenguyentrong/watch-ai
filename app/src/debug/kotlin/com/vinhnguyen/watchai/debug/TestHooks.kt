@@ -24,7 +24,7 @@ import timber.log.Timber
  *   adb shell am broadcast -n com.vinhnguyen.watchai/.debug.TestHooks --es check speak [--ez aloud true]
  *   adb shell am broadcast -n com.vinhnguyen.watchai/.debug.TestHooks --es check icon   (then adb pull files/icon.png)
  *
- * Pages: home, menu, chat, abilities, activity, ai, settings, safety, inbox, voice_lab, buddies. Cards:
+ * Pages: home, menu, chat, abilities, activity, ai, settings, safety, inbox, plus, look, voice_lab, buddies. Cards:
  * timer, note, app, text, call, place, messages. Checks log to tag BuddyTest and show nothing.
  */
 class TestHooks : BroadcastReceiver() {

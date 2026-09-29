@@ -16,6 +16,8 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
+        // RevenueCat's public SDK key (Test Store keys start with test_); empty means no Buddy Plus in this build.
+        buildConfigField("String", "REVENUECAT_KEY", "\"${providers.gradleProperty("revenuecat.apiKey").getOrElse("")}\"")
     }
 
     buildTypes {
@@ -77,6 +79,7 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.timber)
+    implementation(libs.revenuecat)
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)

@@ -81,9 +81,16 @@ All Apache-2.0:
 - Tink (Google)
 - Timber (Jake Wharton)
 
+## Buddy Plus
+
+| What | Source | Licence |
+| --- | --- | --- |
+| RevenueCat Purchases SDK for Android 10.23.3 | https://github.com/RevenueCat/purchases-android | MIT (RevenueCat, Inc.) |
+
 ## Services and terms (not open source)
 
 - ChatGPT: runs on the user's own ChatGPT account, under OpenAI's terms.
+- RevenueCat: Buddy Plus purchases, under RevenueCat's terms.
 - ML Kit GenAI Prompt API (Gemini Nano): ML Kit Terms of Service.
 - Google Play services Wearable (watch to phone link): Google APIs Terms of Service.
 

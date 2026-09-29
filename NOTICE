@@ -1,0 +1,9 @@
+Buddy (watch-ai)
+Copyright 2026 Vinh Nguyen
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Buddy's animation engine is a Kotlin port of bloub by Jérémy Perret, under the MIT License
+(Copyright (c) 2026 Jérémy Perret, https://github.com/jeremy-prt/bloub). The full text ships in
+core/buddy-ui/src/main/assets/licenses/bloub.txt. Other third-party parts and their licences are
+listed in THIRD_PARTY_NOTICES.md.

@@ -43,6 +43,7 @@ import com.vinhnguyen.watchai.ondevice.GemmaBrain
 import com.vinhnguyen.watchai.ondevice.GemmaReader
 import com.vinhnguyen.watchai.ondevice.ModelRepository
 import com.vinhnguyen.watchai.ondevice.OnDeviceSettings
+import com.vinhnguyen.watchai.plus.Plus
 import com.vinhnguyen.watchai.security.KeystoreVault
 import com.vinhnguyen.watchai.security.TimberBrainLogger
 import com.vinhnguyen.watchai.ui.TestPage
@@ -191,8 +192,20 @@ class AppGraph(
         return result
     }
 
-    /** This user's Buddy: from their ChatGPT account, or this install until they sign in. */
-    suspend fun buddySeed(): Long = Genes.seedFor(runCatching { session.bearer().accountId }.getOrNull() ?: settings.installId)
+    /** Buddy Plus through RevenueCat: extras only (choose your Buddy's look, early access). */
+    val plus = Plus(appContext, BuildConfig.REVENUECAT_KEY, scope, BuildConfig.DEBUG)
+
+    /** The Buddy a Plus user picked (a seed), or null for the one made from their account. */
+    val chosenBuddy = MutableStateFlow(settings.chosenBuddy)
+
+    fun chooseBuddy(seed: Long?) {
+        settings.chosenBuddy = seed
+        chosenBuddy.value = seed
+    }
+
+    /** This user's Buddy: the one they picked with Plus, else from their ChatGPT account, or this install until they sign in. */
+    suspend fun buddySeed(): Long = chosenBuddy.value?.takeIf { plus.active.value }
+        ?: Genes.seedFor(runCatching { session.bearer().accountId }.getOrNull() ?: settings.installId)
     val watchCalls = WatchCalls(this)
 
     /** "Delete everything": tokens, keys, reports, notes, models, settings. */
@@ -236,6 +249,11 @@ class AppSettings(
     var privateOnPhone: Boolean
         get() = prefs.getBoolean("private_on_phone", true)
         set(value) = prefs.edit { putBoolean("private_on_phone", value) }
+
+    /** The Buddy picked with Plus (a seed), or null. */
+    var chosenBuddy: Long?
+        get() = if (prefs.contains("chosen_buddy")) prefs.getLong("chosen_buddy", 0) else null
+        set(value) = prefs.edit { if (value == null) remove("chosen_buddy") else putLong("chosen_buddy", value) }
 
     /** GPT-Live voice, chosen in Settings; watch calls use it too. */
     var voice: String

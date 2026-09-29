@@ -22,6 +22,8 @@
 | Texts and calls the user confirmed | Yes | The phone's SMS and call history | Android | The phone's history | To the other person through the carrier |
 | Places and app names | Yes (whatever the user asks) | Not stored (the pop-up's last 8 maps in memory) | — | Until the app closes | To Google Maps or the opened app, on the phone; for the pop-up's map, the place name to OpenStreetMap (Nominatim, then map tiles), with the phone's IP address |
 | Voice timings (debug builds) | No (timings and event types only) | App external files dir | — | Manual | Only via `adb pull` by the developer |
+| Buddy Plus state (`Plus`) | Pseudonymous (RevenueCat's anonymous app user id) | RevenueCat SDK cache on the phone | Android file encryption | Until uninstall | To RevenueCat at app start (entitlement, prices) and with a purchase or restore; no conversation data |
+| Chosen Buddy (Plus) | No (a number) | SharedPreferences | Android file encryption | Until delete everything | No (the seed goes to the watch) |
 | Settings (opt-ins, notice accepted) | No | SharedPreferences | Android file encryption | Until delete everything | No |
 | GPU-broken flag | No (device model string) | SharedPreferences | — | Until delete everything | No |
 | Model file | No | `noBackupFilesDir/models` | — (public file, integrity-checked) | Until deleted | No |
