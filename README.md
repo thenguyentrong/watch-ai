@@ -1,144 +1,178 @@
 # Buddy
 
-A private, hands-free AI agent on the smartwatch you already wear. It acts on your phone (texts,
-calls, messages, timers, calendar), runs on the AI plan you already pay for, and keeps your private
-data on-device.
+[![ci](https://github.com/thenguyentrong/watch-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/thenguyentrong/watch-ai/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-Apache--2.0-6fe3b4)](LICENSE)
 
-Made for the RevenueCat Shipaton 2026. The longer story: [docs/shipaton.md](docs/shipaton.md).
-Join the beta waitlist: [heybuddy-watch.vercel.app](https://heybuddy-watch.vercel.app).
+![Buddy](docs/media/banner.png)
 
-## Why
+**Buddy** is a private, hands-free AI agent on the smartwatch you already wear. It acts on your phone
+(texts, calls, messages, timers, calendar), runs on the ChatGPT plan you already pay for, and reads
+what's private with on-device AI, on the phone.
 
-Small things are still fiddly. Telling someone you're late, setting a timer, checking what's next,
-finding your phone. AI agents can already do a lot of this, but mostly at a computer: open the
-laptop, type, wait. On the phone it means unlocking, finding the app and typing again. And often you
-only want one small thing done, right now, with your hands full.
+This repository has the Wear OS watch app, the Android phone app and everything between them. Made for
+the RevenueCat Shipaton 2026: the story is in [docs/shipaton.md](docs/shipaton.md), and the beta
+waitlist is at [heybuddy-watch.vercel.app](https://heybuddy-watch.vercel.app).
 
-New AI gadgets try to fix that, a pin or a charm with a little character on it. But that's another
-device to buy, charge and carry, usually with its own subscription. Expensive, and not sustainable.
+---
 
-Most people already wear a smartwatch, and earbuds or headphones for a big part of the day. So Buddy,
-a voice-first AI agent, uses those. Raise your wrist and say "Hey Buddy", or tap the watch, and say what you need. Buddy
-answers on the watch or in your ear, and does it on your phone. A small character on the watch shows
-what it's doing. It runs on your existing AI subscription: no new device, no new plan, no API keys.
+## Guide
 
-## What it does
+1. **📖 Understand Buddy**
+   - Read the [Overview](docs/overview.md) for what Buddy does and why.
+   - See [How it works](docs/architecture.md) for the watch, the phone and what goes to the cloud.
+   - Read [Agent safety](docs/security/agent-safety.md) and the [privacy policy](PRIVACY.md).
 
-- **Talk from the watch** with the phone in your pocket, on ChatGPT's voice and your own plan. The
-  watch is microphone, speaker and face; with earbuds in, they take over the sound. Say "bye" when
-  you're done.
-- **"Hey Buddy"**, heard on the watch itself after you raise your wrist, or all the time if you switch
-  that on. **Learn my voice** (read five short sentences) helps it hear you.
-- **Things on your phone**: text and call people, read and answer your messages (WhatsApp, Signal,
-  SMS and more, through their notifications), timers and alarms, calendar and reminders, notes, music
-  and volume, ringer and Do Not Disturb, find my phone, flashlight, open apps, directions in Maps.
-- **Your own Buddy**: its shape, colour and face come from your account. On the phone it's the whole
-  home screen: tap it and talk.
+2. **🔧 Set up**
+   - Follow [Getting started](docs/getting-started.md) to build Buddy and install it on your phone and
+     watch.
+   - Optional: add a RevenueCat Test Store key for [Buddy Plus](docs/getting-started.md#2-optional-buddy-plus).
 
-## Private by design
+3. **💻 Build on it**
+   - Find your way around with the [repository structure](#repository-structure) and the
+     [key modules](#key-modules).
+   - Read the [decisions](docs/adr/) behind the big choices.
 
-ChatGPT hears what you ask and decides what to do. What's yours is read on the phone:
+4. **🧪 Test**
+   - Run the checks in [Testing](docs/testing.md). Test data is synthetic only.
+   - In the app, try a tricky message under **Settings → See what ChatGPT gets**.
+   - See [Troubleshooting](docs/troubleshooting.md) if something doesn't work.
 
-- **Messages, notes and the calendar never go to ChatGPT.** Gemma, an AI model that runs on the phone,
-  answers your question from them, and the phone says the answer in its own voice (Android's offline
-  speech). ChatGPT only learns that the phone told you, and its microphone hears silence meanwhile.
-  You can turn this off in Settings, Privacy; then ChatGPT gets them with codes, numbers and links
-  taken out.
-- **No servers of ours.** Your requests go from your phone to OpenAI under your own account. The
-  sign-in is encrypted with a key that never leaves the phone. No analytics, no ads.
-- **You can see it.** "What Buddy did" lists every action, "Messages Buddy has" shows what it keeps
-  from your notifications (in memory only, at most 6 hours), and "See what ChatGPT gets" shows what
-  would leave the phone for any message you type.
+5. **🚀 Try Buddy**
+   - Join the [beta waitlist](https://heybuddy-watch.vercel.app).
 
-## Safety
-
-Every action goes through one gate in code (`core/brain/.../guard/Guard.kt`), so it doesn't depend on
-the model behaving:
-
-- **Nothing goes out without your yes.** Messages and calls are read back and only sent if you say yes
-  in a later turn, within two minutes, while you're there (watch unlocked on your wrist, phone
-  unlocked, or earbuds in), at most ten an hour. The AI can't confirm its own proposal, and nothing
-  inside a message can pick a recipient.
-- **Never:** banking, payment, password and authenticator apps aren't read at all, and one-time codes
-  never leave the phone. "Stop" ends everything and drops what's waiting.
-- **Your OK for each kind of access**: contacts, texts, calls, notifications, calendar. Take it back
-  any time.
-- **"Hey Buddy" stays on the watch.** Nothing is recorded or sent until it hears the phrase.
-
-The plan behind it, including the next steps for the PC: [docs/security/agent-safety.md](docs/security/agent-safety.md).
-
-## Buddy Plus
-
-Buddy does everything for free. Plus, through RevenueCat, is for people who want to support it:
-choose your Buddy (any look, on the watch too), new things first, and a thank-you mark. Privacy and
-safety are never part of it. Offers, prices and the `plus` entitlement come from RevenueCat; purchases
-restore on a new phone.
-
-## Run it
-
-You need a Wear OS watch paired with an Android phone (tested on a Galaxy Watch5 and a Galaxy S23
-Ultra) and a ChatGPT Plus or Pro account.
-
-1. Android SDK with platform 37: put its path in `local.properties` (`sdk.dir=...`). JDK 17 is picked
-   by `gradle/gradle-daemon-jvm.properties`.
-2. For Buddy Plus, a RevenueCat project with an entitlement `plus` and an offering with at least one
-   package. Its Test Store key works without any store account: add
-   `revenuecat.apiKey=test_...` to `~/.gradle/gradle.properties`. Without a key, Plus just isn't shown.
-   A Test Store key only goes into debug builds (RevenueCat's SDK crashes on purpose with one in release).
-3. Phone: `gradlew :app:installDebug`. Watch (release is much faster on it): `gradlew :wear:installRelease`.
-   Both are signed with the same debug key, which the watch-phone link needs.
-4. Open Buddy on the phone, sign in with ChatGPT (Your AI), and allow what you want it to do (What
-   Buddy can do). Optional: download the offline model in Your AI for private readouts with a summary.
-5. On the watch, open Buddy once and switch on "Hey Buddy".
-
-Checks:
-
-```
-gradlew test testDebugUnitTest      # JVM tests (no phone needed)
-gradlew lintDebug spotlessCheck checkSyntheticFixtures
-gradlew assembleDebug assembleRelease
-gradlew connectedDebugAndroidTest   # on the phone (vault, Keystore)
-```
-
-**Test data is synthetic only.** Anything token-shaped in test sources needs `SYNTHETIC` on the same
-line; `checkSyntheticFixtures` fails the build otherwise. Debug builds have adb test hooks (made-up
-pop-ups and screens, `TestHooks`; "Hey Buddy" with synthetic voices, `HearWav` and friends).
+---
 
 ## How it works
 
-| Part | What |
-|---|---|
-| Watch (`wear`) | Buddy's face, mic and speaker, "Hey Buddy" (sherpa-onnx keyword spotting on the watch), Learn my voice |
-| Phone (`app`) | Runs the conversation (ChatGPT voice over WebRTC), the safety gate, the actions, Buddy Plus |
-| Between them | Wear Data Layer channel, ADPCM audio both ways, 0.1 to 0.5 s round trip |
-| AI | OpenAI under your own ChatGPT account decides; Gemma on the phone reads what's private |
+![How Buddy works](docs/media/architecture.png)
 
-## Modules
+Buddy is split into **three parts**:
 
-| Module | What |
-|---|---|
-| `core/brain` | Brain interface, router, tools (`Toolbox`), the safety gate and the cleaner (`guard`). Plain Kotlin/JVM. |
-| `core/brain-chatgpt` | Sign in with ChatGPT (PKCE + loopback, device code), token refresh, Responses streaming with tools. |
-| `core/brain-ondevice` | Gemma via LiteRT-LM (chat and private reading), Gemini Nano via ML Kit, verified model download. |
-| `core/voice` | ChatGPT voice (GPT-Live over WebRTC), hand-offs to the tools, the phone's own voice for private answers. |
-| `core/watchlink` | The watch-phone audio link: frames, ADPCM, outbox, jitter buffers, leveller. |
-| `core/buddy`, `core/buddy-ui` | Buddy's shapes, faces, moods and drawing (ported from bloub, MIT). |
-| `core/security` | Keystore + Tink vault, log redaction, screen protection. |
-| `core/testing` | Fakes and synthetic test data. |
-| `app` | Phone app: Buddy, conversations, actions, the gate, privacy screens, Buddy Plus. |
-| `wear` | Watch app: face, conversations through the phone, "Hey Buddy", Learn my voice. |
+### 1. The watch (`wear`)
 
-## Next
+The microphone, the speaker and Buddy's face. **"Hey Buddy"** is heard on the watch itself, and audio
+goes to the phone and back over a Wear Data Layer channel. With earbuds in, they take over the sound.
 
-- A "Hey Buddy" model of its own, trained on thousands of voices: better for everyone, light enough
-  to listen all day.
-- Buddy on your computer: tasks handed to Claude Code on your own PC, in a sandbox, with approvals on
-  your wrist.
-- Google Play, and Claude as a second AI plan.
+**What it sends:** your voice, after "Hey Buddy" or a tap. **What it gets:** Buddy's voice and face.
 
-## Security, privacy, licence
+### 2. The phone (`app`)
 
-`SECURITY.md`, `PRIVACY.md`, `docs/security/` (threat model, controls, key management, incident
-response), `docs/privacy/` (data inventory, Play Data safety, GDPR records), `docs/adr/` (decisions).
+Runs the conversation on ChatGPT's realtime voice, under your own account, and does the actions:
+texts, calls, messages, timers, calendar, notes, music, directions and more. Every action goes through
+**one safety gate written in code**, and what's private is read by **Gemma on the phone**.
 
-Apache License 2.0, see `LICENSE` and `NOTICE`. Third-party parts: `THIRD_PARTY_NOTICES.md`.
+**What leaves the phone:** what you say, and the tool calls ChatGPT makes. **What stays:** your
+messages, notes, calendar and sign-in keys.
+
+### 3. The cloud
+
+**OpenAI**, under your own ChatGPT account, hears your requests and decides what to do. **RevenueCat**
+runs Buddy Plus. **Hugging Face** hosts the on-device model, downloaded once. There are no servers of
+mine.
+
+> [!IMPORTANT]
+> **Private things stay on the phone.** When ChatGPT asks for your messages, notes or calendar, the
+> phone reads them with Gemma and says the answer in its own voice. ChatGPT only learns that the phone
+> told you, and its microphone hears silence meanwhile. Details in
+> [How it works](docs/architecture.md#private-readout).
+
+---
+
+## Repository structure
+
+```
+watch-ai/
+├── app/                  # Phone app: Buddy, conversations, actions, the safety gate, Buddy Plus
+├── wear/                 # Watch app: Buddy's face, "Hey Buddy", Learn my voice
+├── core/
+│   ├── brain/            # Brain interface, tools, the safety gate and the cleaner (guard)
+│   ├── brain-chatgpt/    # Sign in with ChatGPT, token refresh, Responses streaming
+│   ├── brain-ondevice/   # Gemma via LiteRT-LM, verified model download
+│   ├── buddy/            # Buddy's shapes, faces and moods (ported from bloub)
+│   ├── buddy-ui/         # Drawing Buddy
+│   ├── security/         # Keystore + Tink vault, log redaction, screen protection
+│   ├── testing/          # Fakes and synthetic test data
+│   ├── voice/            # ChatGPT voice over WebRTC, the phone's own voice
+│   └── watchlink/        # The watch-phone audio link: frames, ADPCM, jitter buffers
+├── docs/                 # Documentation
+└── gradle/               # Version catalog, dependency verification
+```
+
+---
+
+## Key modules
+
+### `core/brain` - Tools and the safety gate
+The brain interface, the tools and `Guard`, the gate every tool call goes through: levels, your yes in
+a later turn, presence, the hourly budget and "stop". Plain Kotlin, tested on the JVM.
+- **Location**: `core/brain/`.
+- **Documentation**: [Agent safety](docs/security/agent-safety.md), [the safety gate](docs/architecture.md#the-safety-gate).
+
+### `core/voice` - Talking
+ChatGPT's realtime voice over WebRTC, the hand-offs to the tools, and the phone's own voice for private
+answers.
+- **Location**: `core/voice/`.
+- **Documentation**: [How it works](docs/architecture.md#conversation), [Voice spike report](docs/test-reports/voice-spike.md).
+
+### `core/brain-ondevice` - AI on the phone
+Gemma via LiteRT-LM for reading what's private, with a model picker and a verified download.
+- **Location**: `core/brain-ondevice/`.
+- **Documentation**: [Private readout](docs/architecture.md#private-readout), [ADR 0003](docs/adr/0003-gemma-on-device.md).
+
+### `core/watchlink` - Watch to phone
+The audio link between the watch and the phone: frames, ADPCM, the outbox, jitter buffers and the
+leveller.
+- **Location**: `core/watchlink/`.
+- **Documentation**: [How it works](docs/architecture.md#the-watch-wear).
+
+### `app` and `wear` - The apps
+The phone app (Buddy, conversations, actions, privacy screens, Buddy Plus) and the watch app (Buddy's
+face, "Hey Buddy", Learn my voice).
+- **Location**: `app/`, `wear/`.
+- **Documentation**: [Getting started](docs/getting-started.md), [Testing](docs/testing.md#debug-hooks-on-the-phone).
+
+---
+
+## Documentation
+
+### About Buddy
+
+* **[Overview](docs/overview.md):** What Buddy does, why, and what's next.
+* **[The Shipaton story](docs/shipaton.md):** The problem, how I built it, challenges and lessons.
+
+### Technical
+
+* **[Getting started](docs/getting-started.md):** Build and install Buddy on your phone and watch.
+* **[How it works](docs/architecture.md):** The watch, the phone, the cloud, and three examples.
+* **[Testing](docs/testing.md):** Checks, CI, debug hooks and synthetic test data.
+* **[Troubleshooting](docs/troubleshooting.md):** Common problems and what to do.
+* **[Decisions](docs/adr/):** Why phone-only, why ChatGPT sign-in, why Gemma, why no certificate pinning.
+* **[Test reports](docs/test-reports/):** What was tested on the devices, with timings.
+
+### Security and privacy
+
+* **[Agent safety](docs/security/agent-safety.md):** How Buddy can do a lot and expose nothing.
+* **[Threat model](docs/security/threat-model.md):** What could go wrong, and what stops it.
+* **[Controls](docs/security/controls.md):** The security controls, against MASVS and SOC 2.
+* **[Privacy policy](PRIVACY.md):** What happens to your data.
+* **[Data inventory](docs/privacy/data-inventory.md):** Every piece of data, where it lives, how long.
+
+### Reference
+
+* **[Glossary](docs/glossary.md):** Words used in the code and the docs.
+
+---
+
+## Support and resources
+
+- **Issues**: Report bugs through [GitHub Issues](https://github.com/thenguyentrong/watch-ai/issues).
+- **Security**: Please don't open a public issue for a vulnerability. See [SECURITY.md](SECURITY.md).
+- **Waitlist**: [heybuddy-watch.vercel.app](https://heybuddy-watch.vercel.app).
+
+---
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). Buddy's animation engine is ported
+from [bloub](https://github.com/jeremy-prt/bloub) (MIT); every third-party part is listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
