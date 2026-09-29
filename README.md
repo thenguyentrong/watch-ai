@@ -13,6 +13,8 @@ This repository has the Wear OS watch app, the Android phone app and everything 
 the RevenueCat Shipaton 2026: the story is in [docs/shipaton.md](docs/shipaton.md), and the beta
 waitlist is at [heybuddy-watch.vercel.app](https://heybuddy-watch.vercel.app).
 
+![Buddy on the watch and the phone](docs/media/screens.png)
+
 ---
 
 ## Guide

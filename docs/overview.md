@@ -4,6 +4,8 @@
 say "Hey Buddy", or tap the watch, and say what you need. Buddy answers on the watch or in your ear,
 and does the thing on your phone while the phone stays in your pocket.
 
+![Buddy on the watch and the phone](media/screens.png)
+
 ---
 
 ## The problem
