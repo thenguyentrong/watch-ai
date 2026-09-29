@@ -226,7 +226,8 @@ internal class VoiceTeacher(
         private const val MIN_PIECES = 5
 
         /** Boost and threshold, strictest first; keywords.txt uses the first. Looser than the last wasn't tried. */
-        private val STEPS = listOf(2.0f to 0.15f, 2.5f to 0.12f, 3.0f to 0.10f)
+        // Starts where the default phrase is (sweep of 29.09: 2.5/0.12 hears a little more at no extra false alarms).
+        private val STEPS = listOf(2.5f to 0.12f, 2.5f to 0.10f, 3.0f to 0.10f)
 
         private val CONFIG =
             OnlineRecognizerConfig(

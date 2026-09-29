@@ -351,7 +351,10 @@ internal class WakeListener(
         private const val MIC_BUFFER_BYTES = SAMPLE_RATE * 2 * 2
         private const val WINDOW_MS = 30_000L
         private const val RETRY_MS = 5_000L
-        private const val GATE = 0.002f
+
+        // Sweep of 29.09 (491 synthetic takes, the watch's model and loop): 0.0012 instead of 0.002 hears "Hey Buddy"
+        // from across the room 59% instead of 43% of the time, at the same false alarms; the room-relative floor still applies.
+        private const val GATE = 0.0012f
         private const val ALWAYS_GATE = 0.004f
         private const val ABOVE_FLOOR = 2f
         private const val FLOOR_RISE = 0.01f
