@@ -133,3 +133,5 @@ the cloud model decides what to do, the phone reads what's yours.
 
 The code is open source under Apache-2.0: https://github.com/thenguyentrong/watch-ai. The README has
 the build steps. The demo shows Buddy on a Galaxy Watch5 and a Galaxy S23 Ultra.
+
+The beta waitlist: https://heybuddy-watch.vercel.app

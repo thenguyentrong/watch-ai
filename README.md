@@ -5,6 +5,7 @@ calls, messages, timers, calendar), runs on the AI plan you already pay for, and
 data on-device.
 
 Made for the RevenueCat Shipaton 2026. The longer story: [docs/shipaton.md](docs/shipaton.md).
+Join the beta waitlist: [heybuddy-watch.vercel.app](https://heybuddy-watch.vercel.app).
 
 ## Why
 
