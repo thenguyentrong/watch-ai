@@ -83,6 +83,7 @@ Ultra) and a ChatGPT Plus or Pro account.
 2. For Buddy Plus, a RevenueCat project with an entitlement `plus` and an offering with at least one
    package. Its Test Store key works without any store account: add
    `revenuecat.apiKey=test_...` to `~/.gradle/gradle.properties`. Without a key, Plus just isn't shown.
+   A Test Store key only goes into debug builds (RevenueCat's SDK crashes on purpose with one in release).
 3. Phone: `gradlew :app:installDebug`. Watch (release is much faster on it): `gradlew :wear:installRelease`.
    Both are signed with the same debug key, which the watch-phone link needs.
 4. Open Buddy on the phone, sign in with ChatGPT (Your AI), and allow what you want it to do (What

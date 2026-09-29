@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// RevenueCat's public SDK key (Test Store keys start with test_); empty means no Buddy Plus in this build.
+val revenueCatKey = providers.gradleProperty("revenuecat.apiKey").getOrElse("")
+
 android {
     namespace = "com.vinhnguyen.watchai"
     compileSdk = 37
@@ -16,8 +19,7 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
-        // RevenueCat's public SDK key (Test Store keys start with test_); empty means no Buddy Plus in this build.
-        buildConfigField("String", "REVENUECAT_KEY", "\"${providers.gradleProperty("revenuecat.apiKey").getOrElse("")}\"")
+        buildConfigField("String", "REVENUECAT_KEY", "\"$revenueCatKey\"")
     }
 
     buildTypes {
@@ -25,6 +27,8 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // The SDK crashes on purpose with a Test Store key in a release build, so release leaves Plus out.
+            if (revenueCatKey.startsWith("test_")) buildConfigField("String", "REVENUECAT_KEY", "\"\"")
         }
     }
 
