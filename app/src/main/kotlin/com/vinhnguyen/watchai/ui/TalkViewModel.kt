@@ -8,6 +8,7 @@ import com.vinhnguyen.watchai.actions.BuddyCard
 import com.vinhnguyen.watchai.actions.ConversationActions
 import com.vinhnguyen.watchai.actions.OwnerPresence
 import com.vinhnguyen.watchai.actions.Pending
+import com.vinhnguyen.watchai.actions.VoiceReply
 import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.brain.chatgpt.auth.AuthState
@@ -17,7 +18,11 @@ import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.voice.ChatGptRealtimeSession
 import com.vinhnguyen.watchai.voice.VoicePhase
 import com.vinhnguyen.watchai.voice.VoiceState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,6 +70,9 @@ class TalkViewModel(
     private var session: ChatGptRealtimeSession? = null
     private var jobs: List<Job> = emptyList()
     private var stopLater: Job? = null
+
+    /** Private answers being said in the phone's own voice; they end with the conversation. */
+    private val readouts = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var heard: String? = null
     private var said: String? = null
     private var shownMood: Mood? = null
@@ -123,7 +131,11 @@ class TalkViewModel(
                         graph.session,
                         ChatGptHttp.authClient(),
                         graph.chatGpt,
-                        graph.guard(Toolboxes(listOf(graph.tools, ConversationActions({ session?.endSoon() }, graph.logger))), OwnerPresence(graph.appContext) { false }),
+                        graph.guard(
+                            Toolboxes(listOf(graph.tools, ConversationActions({ session?.endSoon() }, graph.logger))),
+                            OwnerPresence(graph.appContext) { false },
+                            VoiceReply(graph.speech, graph.cards, readouts) { session },
+                        ),
                         graph.logger,
                         voice = graph.settings.voice,
                         idleHangUpMs = IDLE_HANG_UP_MS,
@@ -189,6 +201,7 @@ class TalkViewModel(
         session = null
         PhoneTalkService.stop(graph.appContext)
         current.stop()
+        readouts.coroutineContext.cancelChildren()
         jobs.forEach { it.cancel() }
         jobs = emptyList()
         _level.value = 0f

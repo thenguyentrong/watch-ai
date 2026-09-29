@@ -71,13 +71,18 @@ fun SettingsScreen(
             "that can't leave this phone. No analytics, no ads, no backups of app data.",
     ) {
         Item(
-            "Read private things on this phone",
+            "Private things stay on this phone",
             subtitle =
-            if (offlineReady) {
-                "Gemma on this phone reads your messages, notes and calendar first; ChatGPT only gets what your question needs. " +
-                    "A few seconds slower."
-            } else {
-                "Needs the offline model (Your AI). Until then, codes, numbers and links are still taken out before ChatGPT sees anything."
+            when {
+                !privateOnPhone -> "Off: ChatGPT reads your messages, notes and calendar when you ask, with codes, numbers and links taken out."
+
+                offlineReady ->
+                    "Gemma reads your messages, notes and calendar here and your phone says the answer in its own voice. " +
+                        "ChatGPT only hears what you ask, never what's in them."
+
+                else ->
+                    "Your phone reads them out itself; ChatGPT only hears what you ask. With the offline model (Your AI), Gemma " +
+                        "answers just what you asked instead of reading everything."
             },
             trailing = {
                 Switch(

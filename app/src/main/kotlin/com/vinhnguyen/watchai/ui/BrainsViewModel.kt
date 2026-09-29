@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -46,8 +48,37 @@ class BrainsViewModel(
     val auth: StateFlow<AuthState> = graph.session.state
     val usage: StateFlow<UsageSnapshot?> = graph.chatGpt.usage
     val spec: ModelSpec get() = graph.models.spec(graph.onDeviceSettings.modelId)
-    val modelState: StateFlow<ModelState> =
-        graph.models.observe(spec).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ModelState.NotDownloaded)
+
+    /** Every offline model on offer, smallest first. */
+    val models: List<ModelSpec> = graph.models.specs.sortedBy { it.sizeBytes }
+
+    /** Each model's download state, by id. */
+    val modelStates: StateFlow<Map<String, ModelState>> =
+        combine(models.map { spec -> graph.models.observe(spec).map { spec.id to it } }) { it.toMap() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private val _inUse = MutableStateFlow(graph.onDeviceSettings.modelId)
+
+    /** The model Gemma uses: for chat without a connection and for reading private things. */
+    val inUse: StateFlow<String> = _inUse.asStateFlow()
+
+    /** The biggest model this phone has the memory for. */
+    val recommended: String get() = models.lastOrNull { graph.models.deviceRamGb() + 0.5 >= it.minRamGb }?.id ?: models.first().id
+
+    fun use(spec: ModelSpec) {
+        graph.onDeviceSettings.modelId = spec.id
+        _inUse.value = spec.id
+        refresh()
+    }
+
+    fun download(spec: ModelSpec) = graph.models.startDownload(spec)
+
+    fun cancelDownload(spec: ModelSpec) = graph.models.cancelDownload(spec)
+
+    fun delete(spec: ModelSpec) {
+        graph.models.delete(spec)
+        refresh()
+    }
 
     private val _state = MutableStateFlow(State(nanoOptIn = graph.onDeviceSettings.nanoOptIn, ramGb = graph.models.deviceRamGb()))
     val state: StateFlow<State> = _state.asStateFlow()
@@ -129,15 +160,6 @@ class BrainsViewModel(
             graph.session.signOut()
             _state.update { it.copy(message = "Signed out on this phone. To end other sessions: ChatGPT → Settings → Security.") }
         }
-    }
-
-    fun startDownload() = graph.models.startDownload(spec)
-
-    fun cancelDownload() = graph.models.cancelDownload(spec)
-
-    fun deleteModel() {
-        graph.models.delete(spec)
-        refresh()
     }
 
     fun setNanoOptIn(enabled: Boolean) {

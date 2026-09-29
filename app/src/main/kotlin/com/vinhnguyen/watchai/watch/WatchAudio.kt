@@ -20,6 +20,7 @@ import com.vinhnguyen.watchai.watchlink.PcmQueue
 import com.vinhnguyen.watchai.watchlink.SilenceGate
 import com.vinhnguyen.watchai.watchlink.WatchLink
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -311,6 +312,28 @@ class WatchAudio(
         }
     }
 
+    /**
+     * Something private said by the phone's own voice, to the watch's speaker in real time (the
+     * outbox only holds a second and drops the oldest if it overflows).
+     */
+    override suspend fun playLocal(
+        samples: ShortArray,
+        sampleRate: Int,
+    ) {
+        val pcm = Pcm.resample(samples, sampleRate, WatchLink.SAMPLE_RATE)
+        val started = SystemClock.elapsedRealtime()
+        var at = 0
+        while (at < pcm.size && !closed) {
+            val frame = pcm.copyOfRange(at, minOf(at + WatchLink.FRAME_SAMPLES, pcm.size)).copyOf(WatchLink.FRAME_SAMPLES)
+            outbox.offer(Frame.Audio(Pcm.toBytes(frame)))
+            at += WatchLink.FRAME_SAMPLES
+            val wait = started + at * 1_000L / WatchLink.SAMPLE_RATE - LOCAL_LEAD_MS - SystemClock.elapsedRealtime()
+            if (wait > 0) delay(wait)
+        }
+        // Until the last of it has played on the watch.
+        delay(LOCAL_LEAD_MS + LOCAL_TAIL_MS)
+    }
+
     override fun flushAnswer() {
         synchronized(pendingLock) { pendingCount = 0 }
         outbox.clearAudio()
@@ -334,6 +357,8 @@ class WatchAudio(
 
     private companion object {
         const val OUTBOX_FRAMES = 25 // 1 s of 40 ms audio frames
+        const val LOCAL_LEAD_MS = 200L
+        const val LOCAL_TAIL_MS = 250L
         const val STATUS_EVERY_MS = 250L
         const val REPORT_MS = 2_000L
         const val ANSWER_SILENCE = 0.002f

@@ -48,6 +48,15 @@ interface ExternalAudio {
         frames: Int,
     )
 
+    /**
+     * Plays something private said by the phone's own voice ([LocalSpeech]) on this device, in real
+     * time; returns once it has played. Meanwhile the conversation sends the model silence.
+     */
+    suspend fun playLocal(
+        samples: ShortArray,
+        sampleRate: Int,
+    ) = Unit
+
     /** The user talked over the answer: drop what is still queued to play. */
     fun flushAnswer()
 

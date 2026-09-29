@@ -10,6 +10,7 @@ import com.vinhnguyen.watchai.actions.MessageInbox
 import com.vinhnguyen.watchai.actions.NoteStore
 import com.vinhnguyen.watchai.actions.OwnerPresence
 import com.vinhnguyen.watchai.actions.ReachActions
+import com.vinhnguyen.watchai.actions.VoiceReply
 import com.vinhnguyen.watchai.brain.Preloaded
 import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
@@ -149,6 +150,7 @@ class VoiceLabViewModel(
                         graph.guard(
                             Toolboxes(listOf(graph.tools, ConversationActions({ (session as? ChatGptRealtimeSession)?.endSoon() }, graph.logger))),
                             OwnerPresence(graph.appContext) { false },
+                            VoiceReply(graph.speech, graph.cards, viewModelScope) { session as? ChatGptRealtimeSession },
                         ),
                         graph.logger,
                         voice = _state.value.voice,

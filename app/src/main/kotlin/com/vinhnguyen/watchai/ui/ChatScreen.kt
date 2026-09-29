@@ -293,7 +293,12 @@ private fun MessageItem(
                 val stats = message.stats
                 val label =
                     buildString {
-                        append(message.brain?.let { "Answered by ${it.label}" } ?: "AI answer")
+                        append(
+                            when {
+                                message.private -> "Read on this phone, not sent to ChatGPT"
+                                else -> message.brain?.let { "Answered by ${it.label}" } ?: "AI answer"
+                            },
+                        )
                         if (stats != null) append(" · %.1f s".format(stats.totalMillis / 1000.0))
                     }
                 Text(label, style = MaterialTheme.typography.labelSmall, color = p.textTertiary, modifier = Modifier.weight(1f))

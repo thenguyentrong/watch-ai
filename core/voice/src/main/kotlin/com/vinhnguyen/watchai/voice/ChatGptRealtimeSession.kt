@@ -157,6 +157,40 @@ class ChatGptRealtimeSession(
     // RTC thread only: for how many polls the voice has been quiet since.
     private var quietPolls = 0
 
+    /**
+     * True while the phone says something private in its own voice ([speakPrivately]): the model hears
+     * silence and its own voice is muted, so none of it reaches OpenAI.
+     */
+    @Volatile private var privateSpeech = false
+
+    /** Whether the model's voice is speaking, as the loop last saw it. */
+    @Volatile private var voiceSpeaking = false
+
+    // RTC thread only: whether the phone's microphone is muted for [privateSpeech].
+    private var micMuted = false
+
+    /**
+     * Says [audio] (from [LocalSpeech]) where the answers play: on the watch, or on the phone and its
+     * earbuds. Meanwhile the model hears silence, its voice is muted and the call counts as busy.
+     * Waits for the model to finish what it's saying first. Returns once it has been said.
+     */
+    suspend fun speakPrivately(audio: LocalSpeech.Audio) {
+        withTimeoutOrNull(WAIT_FOR_VOICE_MS) { while (voiceSpeaking) delay(POLL_MS) }
+        privateSpeech = true
+        try {
+            // The loop mutes the model's voice and the mic within a poll.
+            delay(POLL_MS * 2)
+            val ext = external
+            if (ext != null && !ext.answerOnPhone) ext.playLocal(audio.samples, audio.sampleRate) else playOnPhone(audio)
+            // The end of it may still echo in the room: stay deaf a moment longer.
+            delay(ECHO_TAIL_MS)
+        } finally {
+            privateSpeech = false
+        }
+    }
+
+    private suspend fun playOnPhone(audio: LocalSpeech.Audio) = playOnPhone(audio, if (external != null && external.micOnDevice) ASSISTANT else CallAudio.SPEECH)
+
     /** Tells the voice what happened on screen (a yes given with a button); it may mention it. */
     fun tell(text: String) {
         scope?.launch { send(QuicksilverWire.noteFrames(text)) }
@@ -256,6 +290,8 @@ class ChatGptRealtimeSession(
                             // With a headset on the phone, its microphone goes through unchanged, once
                             // what was said before the call connected has been played in.
                             if (ext.micOnDevice || ext.catchingUp) ext.fillMicrophone(buffer, bytes, sampleRate, channels)
+                            // While the phone says something private, the model hears silence; what the mic picked up is dropped.
+                            if (privateSpeech) silence(buffer, bytes)
                             captureTimeNs
                         }
                     }
@@ -411,11 +447,16 @@ class ChatGptRealtimeSession(
 
                 null -> Unit
             }
-            // The phone plays when there's no external speaker in use, and not while the user talks over it.
-            val phoneSilent = answerMuted || (external != null && !external.answerOnPhone)
+            // The phone plays when there's no external speaker in use, and not while the user talks over it
+            // or the phone says something private in its own voice.
+            val phoneSilent = answerMuted || privateSpeech || (external != null && !external.answerOnPhone)
             if (phoneSilent != phoneSpeakerMuted) {
                 phoneSpeakerMuted = phoneSilent
                 adm?.setSpeakerMute(phoneSilent)
+            }
+            if (privateSpeech != micMuted) {
+                micMuted = privateSpeech
+                adm?.setMicrophoneMute(privateSpeech)
             }
             // The headset went away mid-call: the phone leaves call mode, the external device takes over.
             val wantCallAudio = external == null || !external.micOnDevice
@@ -434,7 +475,7 @@ class ChatGptRealtimeSession(
                     onIdle()
                 }
             }
-            if (timer.assistantSpeaking || consultJob?.isActive == true) lastActivityAt = clock
+            if (timer.assistantSpeaking || consultJob?.isActive == true || privateSpeech) lastActivityAt = clock
             // Before the first words, more time: the start can be slow (a sleeping phone took 5.4 s to
             // connect, 28.09) and people wait for the chime.
             val idleLimit = idleHangUpMs?.let { if (heardUser) it else maxOf(it, FIRST_WORDS_MS) }
@@ -443,11 +484,12 @@ class ChatGptRealtimeSession(
                 note("hung up after ${idleLimit / 1000} s of quiet")
                 onIdle()
             }
+            voiceSpeaking = timer.assistantSpeaking
             if (timer.assistantSpeaking) responsePending = false
             _level.value = (if (timer.assistantSpeaking) assistant else user).toFloat()
             val phase =
                 when {
-                    timer.assistantSpeaking -> VoicePhase.SPEAKING
+                    privateSpeech || timer.assistantSpeaking -> VoicePhase.SPEAKING
                     responsePending && !timer.userSpeaking -> VoicePhase.THINKING
                     else -> VoicePhase.LISTENING
                 }
@@ -517,7 +559,7 @@ class ChatGptRealtimeSession(
                 note("remote audio track")
                 val ext = external ?: return
                 (receiver?.track() as? AudioTrack)?.addSink { data, _, sampleRate, channels, frames, _ ->
-                    if (!answerMuted && !ext.answerOnPhone) ext.playAnswer(data, sampleRate, channels, frames)
+                    if (!answerMuted && !privateSpeech && !ext.answerOnPhone) ext.playAnswer(data, sampleRate, channels, frames)
                 }
             }
         }
@@ -666,6 +708,19 @@ class ChatGptRealtimeSession(
 
     companion object {
         const val MODEL = "gpt-live-1-codex"
+
+        /** How long a private reading waits for the model to finish speaking. */
+        private const val WAIT_FOR_VOICE_MS = 5_000L
+        private const val ECHO_TAIL_MS = 300L
+
+        /** Zeroes the first [bytes] of a WebRTC capture buffer without moving its position. */
+        private fun silence(
+            buffer: ByteBuffer,
+            bytes: Int,
+        ) {
+            val out = buffer.duplicate()
+            for (i in 0 until bytes) out.put(i, 0)
+        }
 
         private val ASSISTANT: AudioAttributes =
             AudioAttributes

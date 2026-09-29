@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vinhnguyen.watchai.AppGraph
 import com.vinhnguyen.watchai.ReportStore
+import com.vinhnguyen.watchai.actions.ChatReply
 import com.vinhnguyen.watchai.brain.BrainError
 import com.vinhnguyen.watchai.brain.BrainId
 import com.vinhnguyen.watchai.brain.ChatEvent
@@ -35,6 +36,8 @@ class ChatViewModel(
         val error: String? = null,
         val streaming: Boolean = false,
         val flagged: Boolean = false,
+        /** Made on this phone from the user's private data (messages, notes, calendar); never sent to ChatGPT. */
+        val private: Boolean = false,
     )
 
     data class State(
@@ -49,7 +52,9 @@ class ChatViewModel(
     private var job: Job? = null
     private var nextId = 1L
     private var conversationId = UUID.randomUUID().toString()
-    private var guard = graph.guard(graph.tools) { true }
+
+    // Typed in the app, so the phone is in hand; private answers are shown here, made on the phone.
+    private var guard = graph.guard(graph.tools, { true }, ChatReply(::showPrivate))
 
     fun send(text: String) {
         val prompt = text.trim()
@@ -109,10 +114,19 @@ class ChatViewModel(
         job?.cancel()
     }
 
+    /** A private answer, made on this phone: shown before the reply that's still coming, never sent to ChatGPT. */
+    private fun showPrivate(text: String) {
+        _state.update { state ->
+            val at = state.messages.indexOfFirst { it.streaming }.takeIf { it >= 0 } ?: state.messages.size
+            val message = Message(nextId++, ChatTurn.Role.ASSISTANT, text, brain = BrainId.GEMMA, private = true)
+            state.copy(messages = state.messages.toMutableList().apply { add(at, message) })
+        }
+    }
+
     fun newConversation() {
         stop()
         conversationId = UUID.randomUUID().toString()
-        guard = graph.guard(graph.tools) { true }
+        guard = graph.guard(graph.tools, { true }, ChatReply(::showPrivate))
         _state.update { it.copy(messages = emptyList()) }
     }
 

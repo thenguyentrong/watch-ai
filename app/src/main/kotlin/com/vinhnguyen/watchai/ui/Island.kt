@@ -303,6 +303,7 @@ private val SYMBOLS =
         Symbol.PHONE to R.drawable.sym_ring_volume,
         Symbol.CHECK to R.drawable.sym_check_circle,
         Symbol.CANCEL to R.drawable.sym_cancel,
+        Symbol.PRIVATE to R.drawable.sym_lock,
     )
 
 /**

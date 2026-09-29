@@ -20,6 +20,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.vinhnguyen.watchai.actions.BuddyCard
 import com.vinhnguyen.watchai.actions.Symbol
 import com.vinhnguyen.watchai.brain.guard.Redactor
+import com.vinhnguyen.watchai.brain.guard.onPhone
 import com.vinhnguyen.watchai.security.protectScreen
 import com.vinhnguyen.watchai.ui.AbilitiesViewModel
 import com.vinhnguyen.watchai.ui.BenchmarkViewModel
@@ -99,6 +100,24 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * Test builds only: what the phone itself would say about the made-up messages (Gemma's answer, or
+     * them read out), played in the phone's own voice. Timings logged (tag BuddyTest).
+     */
+    private fun testSpeech() {
+        val graph = (application as WatchAiApp).graph
+        lifecycleScope.launch {
+            val started = SystemClock.elapsedRealtime()
+            val said = onPhone(TEST_MESSAGES, "Any new messages?", "messages people sent", graph.reader)
+            val answered = SystemClock.elapsedRealtime()
+            val audio = graph.speech.synthesize(said)
+            val spoken = SystemClock.elapsedRealtime()
+            Log.i("BuddyTest", "speak: answer %.1f s, voice %.1f s, audio %s: %s".format((answered - started) / 1000.0, (spoken - answered) / 1000.0, audio?.let { "${it.millis} ms at ${it.sampleRate} Hz" } ?: "none", said))
+            graph.cards.show(BuddyCard.Done(Symbol.PRIVATE, "Read on this phone", said))
+            audio?.let { graph.speech.play(it) }
+        }
+    }
+
+    /**
      * Test builds only: shows a made-up pop-up, to look at every kind without sending anything, e.g.
      * `adb shell am start -n com.vinhnguyen.watchai/.MainActivity --es card place`, or opens a screen
      * with `--es page settings` (home, menu, chat, abilities, ai, settings, voice_lab, buddies).
@@ -109,6 +128,7 @@ class MainActivity : ComponentActivity() {
     ) {
         intent.getStringExtra("page")?.let { testPage.value = TestPage(it) }
         if (intent.getStringExtra("card") == "reader") return testReader()
+        if (intent.getStringExtra("card") == "speak") return testSpeech()
         val sms = runCatching { Telephony.Sms.getDefaultSmsPackage(this) }.getOrNull() ?: packageName
         val card =
             when (intent.getStringExtra("card")) {

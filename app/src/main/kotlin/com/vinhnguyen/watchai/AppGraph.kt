@@ -34,6 +34,7 @@ import com.vinhnguyen.watchai.brain.guard.Budget
 import com.vinhnguyen.watchai.brain.guard.Guard
 import com.vinhnguyen.watchai.brain.guard.Level
 import com.vinhnguyen.watchai.brain.guard.Presence
+import com.vinhnguyen.watchai.brain.guard.PrivateReply
 import com.vinhnguyen.watchai.buddy.Genes
 import com.vinhnguyen.watchai.ondevice.AppForeground
 import com.vinhnguyen.watchai.ondevice.EngineHolder
@@ -44,6 +45,7 @@ import com.vinhnguyen.watchai.ondevice.ModelRepository
 import com.vinhnguyen.watchai.ondevice.OnDeviceSettings
 import com.vinhnguyen.watchai.security.KeystoreVault
 import com.vinhnguyen.watchai.security.TimberBrainLogger
+import com.vinhnguyen.watchai.voice.LocalSpeech
 import com.vinhnguyen.watchai.watch.WatchCalls
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -125,6 +127,9 @@ class AppGraph(
     private val logVault = KeystoreVault(appContext, logger, alias = "watchai_log_master_v1", dirName = "log")
     val actionLog = ActionLogStore(logVault, scope)
 
+    /** The phone's own voice, for private answers. */
+    val speech by lazy { LocalSpeech(appContext) }
+
     /** Gemma on this phone, reading private data before ChatGPT gets it. */
     val reader = GemmaReader(models, onDeviceSettings, engines, logger)
 
@@ -135,6 +140,7 @@ class AppGraph(
     fun guard(
         tools: Toolbox,
         presence: Presence,
+        reply: PrivateReply,
     ): Guard = Guard(
         inner = tools,
         levels = Safety.LEVELS,
@@ -144,6 +150,8 @@ class AppGraph(
         reader = if (settings.privateOnPhone) reader else null,
         readable = Safety.READABLE,
         log = actionLog,
+        // On (the default): private things stay on the phone; off: ChatGPT reads them, cleaned.
+        reply = if (settings.privateOnPhone) reply else null,
         stopTool = ConversationActions.END,
         onStop = pending::cancel,
     )

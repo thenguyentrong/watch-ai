@@ -161,8 +161,22 @@ logs into themselves, and passkeys where possible (they need the user's fingerpr
   tell" and doesn't block). A tap on Send in the pop-up always counts as there.
 - "What Buddy did" in the menu: kind, time and outcome, encrypted, 30 days.
 
+Then, same day: **private things stay on the phone** (on by default, Settings, Privacy). With it
+on, a private result never goes to ChatGPT at all, not even as a summary. Gemma answers the question
+from it on the phone (`LocalReader.answer`), the phone says the answer in its own voice
+(`LocalSpeech`: Android's speech engine, offline voices only) where the answers play (watch,
+earbuds, phone), or shows it in the chat, and ChatGPT only hears "the phone is telling the user"
+(`TOLD_ON_PHONE`). While the phone speaks, ChatGPT's voice is muted and it hears silence, so the
+readout can't reach it through the microphone either (`ChatGptRealtimeSession.speakPrivately`).
+Without the offline model the phone reads the data out as it is. Codes may be read out locally
+when the user asks, since they don't leave the phone. The user can pick the offline model
+(Gemma 4 E2B, or E4B on phones with 11 GB of memory) in Your AI.
+
+What still reaches OpenAI: what the user says to Buddy (their requests, a text they dictate, a
+note they add). Only a voice that runs on the phone end to end would change that.
+
 Not in step 1 yet: grants ("PC tasks for an hour"), confirming a first-time recipient on the
-screen, showing a hidden code on the watch.
+screen.
 
 ## Found before step 1 (closed)
 

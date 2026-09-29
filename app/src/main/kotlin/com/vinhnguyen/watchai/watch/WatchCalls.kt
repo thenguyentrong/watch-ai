@@ -10,6 +10,7 @@ import com.vinhnguyen.watchai.actions.ConversationActions
 import com.vinhnguyen.watchai.actions.OwnerPresence
 import com.vinhnguyen.watchai.actions.PhoneActions
 import com.vinhnguyen.watchai.actions.ReachActions
+import com.vinhnguyen.watchai.actions.VoiceReply
 import com.vinhnguyen.watchai.brain.Toolboxes
 import com.vinhnguyen.watchai.brain.chatgpt.ChatGptHttp
 import com.vinhnguyen.watchai.buddy.Mood
@@ -17,7 +18,11 @@ import com.vinhnguyen.watchai.buddy.MoodReader
 import com.vinhnguyen.watchai.buddy.Reaction
 import com.vinhnguyen.watchai.voice.ChatGptRealtimeSession
 import com.vinhnguyen.watchai.voice.VoiceState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,6 +66,9 @@ class WatchCalls(
     private var channel: ChannelClient.Channel? = null
     private var watcher: Job? = null
     private var warmth: Job? = null
+
+    /** Private answers being said in the phone's own voice, on the watch; they end with the call. */
+    private val readouts = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var phoneAudio: PhoneAudio? = null
     private var onEnded: (() -> Unit)? = null
 
@@ -115,7 +123,7 @@ class WatchCalls(
                     graph.session,
                     ChatGptHttp.authClient(),
                     graph.chatGpt,
-                    graph.guard(tools, OwnerPresence(graph.appContext) { onCall.unlocked() }),
+                    graph.guard(tools, OwnerPresence(graph.appContext) { onCall.unlocked() }, VoiceReply(graph.speech, graph.cards, readouts) { session }),
                     graph.logger,
                     voice = graph.settings.voice,
                     external = watch,
@@ -207,6 +215,7 @@ class WatchCalls(
         s.stop()
         warmth?.cancel()
         warmth = null
+        readouts.coroutineContext.cancelChildren()
         watcher?.cancel()
         watcher = null
         phoneAudio?.stop()

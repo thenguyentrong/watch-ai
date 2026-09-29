@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vinhnguyen.watchai.CustomTabLauncher
 import com.vinhnguyen.watchai.brain.chatgpt.auth.AuthState
+import com.vinhnguyen.watchai.ondevice.ModelSpec
 import com.vinhnguyen.watchai.ondevice.ModelState
 
 /** The AI behind Buddy: the user's ChatGPT account, and the optional models that run on the phone. */
@@ -34,16 +35,14 @@ fun BrainsScreen(vm: BrainsViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
     val auth by vm.auth.collectAsStateWithLifecycle()
     val usage by vm.usage.collectAsStateWithLifecycle()
-    val model by vm.modelState.collectAsStateWithLifecycle()
     val activity = LocalActivity.current ?: return
     // The download shows a progress notification; Android 13+ needs permission for it (the download runs either way).
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    val startDownload = {
+    val askNotifications = {
         val needsAsk =
             Build.VERSION.SDK_INT >= 33 &&
                 activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         if (needsAsk) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        vm.startDownload()
     }
 
     state.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = p.textSecondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
@@ -90,33 +89,30 @@ fun BrainsScreen(vm: BrainsViewModel) {
         }
     }
 
-    val spec = vm.spec
+    val states by vm.modelStates.collectAsStateWithLifecycle()
+    val inUse by vm.inUse.collectAsStateWithLifecycle()
     Group(
         "Offline on this phone",
-        footer = "${spec.displayName}, ${Texts.gb(spec.sizeBytes)}, ${spec.license}, from ${spec.source}. For chat without a connection; " +
-            "Hugging Face sees your IP address during the one download. Talking to Buddy uses ChatGPT either way.",
+        footer = "Gemma reads your messages, notes and calendar on the phone (Settings, Privacy) and chats without a connection. " +
+            "A bigger model answers better but is slower and needs more memory. From Hugging Face (litert-community), Apache-2.0; " +
+            "they see your IP address during the one download, Wi-Fi only.",
     ) {
-        when (val m = model) {
-            ModelState.Ready -> Item("Gemma is ready", subtitle = "Takes ${Texts.gb(spec.sizeBytes)} of storage", last = true, trailing = { Pill("Delete", onClick = vm::deleteModel, filled = false) })
-
-            is ModelState.Downloading ->
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(m.progress?.let { "Downloading ${(it * 100).toInt()}% (Wi-Fi only)" } ?: "Waiting for Wi-Fi…", style = MaterialTheme.typography.titleMedium, color = p.text)
-                    m.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth(), color = p.text, trackColor = p.surfaceHigh) }
-                    Pill("Cancel", onClick = vm::cancelDownload, filled = false)
-                }
-
-            ModelState.NotEnoughRam -> Item("Not on this phone", subtitle = "It needs more memory than this phone has", last = true)
-
-            is ModelState.Failed ->
-                Item(
-                    "The download didn't finish",
-                    subtitle = if (m.reason == "integrity") "It failed its safety check and was deleted" else null,
-                    last = true,
-                    trailing = { Pill("Try again", onClick = startDownload) },
-                )
-
-            ModelState.NotDownloaded -> Item("Gemma", subtitle = "Optional, ${Texts.gb(spec.sizeBytes)} over Wi-Fi", last = true, trailing = { Pill("Download", onClick = startDownload, filled = false) })
+        vm.models.forEachIndexed { i, spec ->
+            ModelRow(
+                spec = spec,
+                state = states[spec.id] ?: ModelState.NotDownloaded,
+                inUse = spec.id == inUse,
+                recommended = spec.id == vm.recommended,
+                ramGb = state.ramGb,
+                last = i == vm.models.lastIndex,
+                onDownload = {
+                    askNotifications()
+                    vm.download(spec)
+                },
+                onCancel = { vm.cancelDownload(spec) },
+                onUse = { vm.use(spec) },
+                onDelete = { vm.delete(spec) },
+            )
         }
     }
 
@@ -149,3 +145,77 @@ private val PLAN_NAMES =
         "enterprise" to "Enterprise",
         "edu" to "Edu",
     )
+
+/** One offline model: what it is, whether it fits this phone, and what can be done with it. */
+@Composable
+private fun ModelRow(
+    spec: ModelSpec,
+    state: ModelState,
+    inUse: Boolean,
+    recommended: Boolean,
+    ramGb: Double,
+    last: Boolean,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onUse: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val p = LocalPalette.current
+    val about =
+        listOfNotNull(
+            Texts.gb(spec.sizeBytes),
+            if (spec.minRamGb >= BIG_MODEL_RAM_GB) "better answers, slower" else "quicker",
+            "needs ${spec.minRamGb} GB memory",
+            "best for this phone".takeIf { recommended },
+        ).joinToString(" · ")
+    when (state) {
+        ModelState.Ready ->
+            Item(
+                spec.displayName + if (inUse) " · in use" else "",
+                subtitle = about,
+                last = last,
+                trailing = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!inUse) Pill("Use", onClick = onUse)
+                        Pill("Delete", onClick = onDelete, filled = false)
+                    }
+                },
+            )
+
+        is ModelState.Downloading ->
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(spec.displayName, style = MaterialTheme.typography.titleMedium, color = p.text)
+                Text(state.progress?.let { "Downloading ${(it * 100).toInt()}% (Wi-Fi only)" } ?: "Waiting for Wi-Fi…", style = MaterialTheme.typography.bodyMedium, color = p.textSecondary)
+                state.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth(), color = p.text, trackColor = p.surfaceHigh) }
+                Pill("Cancel", onClick = onCancel, filled = false)
+            }
+
+        ModelState.NotEnoughRam ->
+            Item(spec.displayName, subtitle = "Not for this phone: it needs ${spec.minRamGb} GB of memory, this one has %.0f".format(ramGb), last = last)
+
+        is ModelState.Failed ->
+            Item(
+                spec.displayName,
+                subtitle = if (state.reason == "integrity") "The download failed its safety check and was deleted" else "The download didn't finish",
+                last = last,
+                trailing = { Pill("Try again", onClick = onDownload) },
+            )
+
+        ModelState.NotDownloaded ->
+            Item(
+                spec.displayName,
+                subtitle = about,
+                last = last,
+                trailing = {
+                    Pill("Download", onClick = {
+                        onDownload()
+                        // The first one downloaded is the one used.
+                        if (!inUse) onUse()
+                    }, filled = !inUse && recommended)
+                },
+            )
+    }
+}
+
+/** Models needing this much memory are the bigger, better ones. */
+private const val BIG_MODEL_RAM_GB = 10

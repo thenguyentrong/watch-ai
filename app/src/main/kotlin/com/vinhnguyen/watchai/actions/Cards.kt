@@ -48,7 +48,7 @@ sealed interface BuddyCard {
     }
 }
 
-enum class Symbol { TIMER, ALARM, NOTE, CALENDAR, MUSIC, LIGHT, PHONE, CHECK, CANCEL }
+enum class Symbol { TIMER, ALARM, NOTE, CALENDAR, MUSIC, LIGHT, PHONE, CHECK, CANCEL, PRIVATE }
 
 class CardHub {
     private val _cards = MutableSharedFlow<BuddyCard>(extraBufferCapacity = 16)
