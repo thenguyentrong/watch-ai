@@ -95,7 +95,7 @@ class TestHooks : BroadcastReceiver() {
             }
         }
         if (intent.getStringExtra("check") == "tap") {
-            // The phone's model judging a made-up control: --es app, --es words, [--es name view_id] [--ez list true].
+            // The phone's model judging a made-up control: --es app, --es words, [--es name view_id] [--ez list true], or Enter in a field [--ez enter true].
             val node =
                 com.vinhnguyen.watchai.actions.screen.ScreenNode(
                     id = 1,
@@ -105,7 +105,13 @@ class TestHooks : BroadcastReceiver() {
                     clickable = true,
                     inList = intent.getBooleanExtra("list", false),
                 )
-            val question = com.vinhnguyen.watchai.actions.screen.ScreenModel.tapQuestion(intent.getStringExtra("app") ?: "an app", node)
+            val app = intent.getStringExtra("app") ?: "an app"
+            val question =
+                if (intent.getBooleanExtra("enter", false)) {
+                    com.vinhnguyen.watchai.actions.screen.ScreenModel.enterQuestion(app, node)
+                } else {
+                    com.vinhnguyen.watchai.actions.screen.ScreenModel.tapQuestion(app, node)
+                }
             graph.scope.launch {
                 val started = SystemClock.elapsedRealtime()
                 val yes = question?.let { graph.reader.pick(it, com.vinhnguyen.watchai.actions.screen.ScreenModel.TAP_CHOICES) }
@@ -141,6 +147,20 @@ class TestHooks : BroadcastReceiver() {
                 Timber.tag(TAG).i("tool %s %s: %s", tool, args, result)
             }
         }
+        // A conversation with the real ChatGPT planner, from adb (EndToEnd): --es e2e "<what the user says>",
+        // --es e2e_new x, --es e2e_message "<from>|<text>" (made up), --es e2e_clean x.
+        // How many apps are on, off or always off (counts only), and one app set on or off for a test.
+        if (intent.getStringExtra("check") == "apps") {
+            graph.scope.launch {
+                val counts = graph.limits.apps().groupingBy { it.status }.eachCount()
+                Timber.tag(TAG).i("apps: %s", counts)
+            }
+        }
+        intent.getStringExtra("app_state")?.let { pkg -> graph.limits.choose(pkg, intent.getBooleanExtra("on", false)) }
+        intent.getStringExtra("e2e_new")?.let { graph.scope.launch { EndToEnd.reset() } }
+        intent.getStringExtra("e2e_message")?.let { EndToEnd.inject(graph, it.substringBefore('|'), it.substringAfter('|')) }
+        intent.getStringExtra("e2e_clean")?.let { apps -> graph.scope.launch { EndToEnd.cleanUp(graph, apps.split(',').map { it.trim() }.filter { it.contains('.') }) } }
+        intent.getStringExtra("e2e")?.let { text -> graph.scope.launch { EndToEnd.turn(graph, text) } }
         when (intent.getStringExtra("demo")) {
             // A made-up conversation for looking at History, and taking it out again.
             "add" -> {

@@ -72,6 +72,12 @@ code, and the answers can be logged):
 - `--es check app --es label <name> --es pkg <package>`: `money`, `secrets` or `other`.
 - `--es limits <package>`: whether Buddy stays out of an installed app. `--es check voices`: the
   phone's offline voices.
+- `--es e2e '<what the user says>'`: a conversation with the real ChatGPT planner, as a watch call's
+  look-ups have it (the same tools, the same Guard, Gemma on the phone), one typed turn at a time;
+  `--es e2e_new x` starts a new one. The log (tag `BuddyE2E`) shows each tool call, what ChatGPT got
+  back and its answer; what the phone says privately only as a word count and its language.
+  `--es e2e_message '<from>|<text>'` puts a made-up message into the inbox (from a made-up chat
+  app that's on), `--es e2e_clean x` takes those and the test's notes out again.
 - `--es tool <name> --es args '<json>'`: any tool through the real Guard, as if the user had just
   spoken (for `remember`). `--es check memory`: what a new conversation would start with, as counts;
   `--ez reveal true` shows it (made-up content only). `--es demo add` / `--es demo remove` puts a
