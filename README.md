@@ -11,7 +11,8 @@ what's private with on-device AI, on the phone.
 
 This repository has the Wear OS watch app, the Android phone app and everything between them. Made for
 the RevenueCat Shipaton 2026: the story is in [docs/shipaton.md](docs/shipaton.md), and the beta
-waitlist is at [heybuddy-watch.vercel.app](https://heybuddy-watch.vercel.app).
+waitlist is at [heybuddy-watch.vercel.app](https://heybuddy-watch.vercel.app) (its code is in
+[buddy-site](https://github.com/thenguyentrong/buddy-site)).
 
 ![Buddy on the watch and the phone](docs/media/screens.png)
 
@@ -169,7 +170,8 @@ face, "Hey Buddy", Learn my voice).
 
 - **Issues**: Report bugs through [GitHub Issues](https://github.com/thenguyentrong/watch-ai/issues).
 - **Security**: Please don't open a public issue for a vulnerability. See [SECURITY.md](SECURITY.md).
-- **Waitlist**: [heybuddy-watch.vercel.app](https://heybuddy-watch.vercel.app).
+- **Waitlist**: [heybuddy-watch.vercel.app](https://heybuddy-watch.vercel.app), its code is in
+  [buddy-site](https://github.com/thenguyentrong/buddy-site).
 
 ---
 
