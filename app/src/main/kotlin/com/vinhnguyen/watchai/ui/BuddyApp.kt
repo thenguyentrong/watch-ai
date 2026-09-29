@@ -134,6 +134,8 @@ fun BuddyApp(
 
             else -> Page.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let(open)
         }
+        // Used once: it must not come back when the screen is made again.
+        if (testPage != null) graph.testPage.value = null
     }
     BackHandler(menu) { menu = false }
     BackHandler(!menu && page != null) {

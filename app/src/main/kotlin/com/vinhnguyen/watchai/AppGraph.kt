@@ -45,6 +45,7 @@ import com.vinhnguyen.watchai.ondevice.ModelRepository
 import com.vinhnguyen.watchai.ondevice.OnDeviceSettings
 import com.vinhnguyen.watchai.security.KeystoreVault
 import com.vinhnguyen.watchai.security.TimberBrainLogger
+import com.vinhnguyen.watchai.ui.TestPage
 import com.vinhnguyen.watchai.voice.LocalSpeech
 import com.vinhnguyen.watchai.watch.WatchCalls
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +54,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -126,6 +128,9 @@ class AppGraph(
     // The log of what Buddy did gets its own vault and key too.
     private val logVault = KeystoreVault(appContext, logger, alias = "watchai_log_master_v1", dirName = "log")
     val actionLog = ActionLogStore(logVault, scope)
+
+    /** Test builds: a screen to open, set from adb (debug TestHooks); nothing sets it in release builds. */
+    val testPage = MutableStateFlow<TestPage?>(null)
 
     /** The phone's own voice, for private answers. */
     val speech by lazy { LocalSpeech(appContext) }
