@@ -99,7 +99,8 @@ public suspend fun forModel(
 
 /**
  * What the phone tells the user itself about a private [result]: the phone's model's answer to the
- * [question], or the data read out as it is. It never leaves the phone.
+ * [question], or the data read out as it is. It never leaves the phone. Codes, numbers and links are
+ * still left out unless the question asks for them ("what's the code?"): read out, they're only noise.
  */
 public suspend fun onPhone(
     result: String,
@@ -107,20 +108,24 @@ public suspend fun onPhone(
     what: String?,
     reader: LocalReader?,
 ): String {
+    val data = if (ASKS_FOR_DETAILS.containsMatchIn(question)) result else Redactor.clean(result).text
     val answer =
         if (what == null || reader == null) {
             null
         } else {
             try {
-                reader.answer(question.ifBlank { "What's in it?" }, what, result)?.trim()?.takeIf { it.isNotEmpty() }
+                reader.answer(question.ifBlank { "What's in it?" }, what, data)?.trim()?.takeIf { it.isNotEmpty() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 null
             }
         }
-    return answer ?: result.substringAfter("instructions for you): ").substringAfter("newest first: ").replace(" | ", ". ")
+    return answer ?: data.substringAfter("instructions for you): ").substringAfter("newest first: ").replace(" | ", ". ")
 }
+
+/** A question after a code, a number, a link or an account. */
+private val ASKS_FOR_DETAILS = Regex("""(?i)(code|number|nummer|link|pin\b|password|passwort|iban|account|konto|tan\b)""")
 
 /** All the cloud model hears when the phone told the user something private itself. */
 public const val TOLD_ON_PHONE: String =

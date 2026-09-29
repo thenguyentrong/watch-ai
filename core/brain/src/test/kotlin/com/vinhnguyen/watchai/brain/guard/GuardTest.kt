@@ -209,6 +209,36 @@ class GuardTest {
     }
 
     @Test
+    fun `the phone leaves codes out of what it says unless asked for one`() = runBlocking {
+        val seen = ArrayList<String>()
+        val reader =
+            object : LocalReader {
+                override suspend fun read(
+                    question: String,
+                    what: String,
+                    data: String,
+                ): String? = null
+
+                override suspend fun answer(
+                    question: String,
+                    what: String,
+                    data: String,
+                ): String {
+                    seen += data
+                    return "ok"
+                }
+            }
+        val g = guard(FakePhone(messages = "Google: \"G-482913 is your code\""), reader, reply = { answer ->
+            answer()
+            true
+        })
+        g.run("read_messages", "{}", ToolContext("any messages?"))
+        g.run("read_messages", "{}", ToolContext("what's the Google code?"))
+        assertThat(seen[0]).doesNotContain("482913")
+        assertThat(seen[1]).contains("482913")
+    }
+
+    @Test
     fun `when the phone can't say it, nothing goes to the model either`() = runBlocking {
         val g = guard(FakePhone(messages = "Anna: \"secret\""), reply = { false })
         val out = g.run("read_messages", "{}")

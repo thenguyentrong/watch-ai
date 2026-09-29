@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity() {
      * Test builds only: what the phone itself would say about the made-up messages (Gemma's answer, or
      * them read out), played in the phone's own voice. Timings logged (tag BuddyTest).
      */
-    private fun testSpeech() {
+    private fun testSpeech(aloud: Boolean) {
         val graph = (application as WatchAiApp).graph
         lifecycleScope.launch {
             val started = SystemClock.elapsedRealtime()
@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
             val spoken = SystemClock.elapsedRealtime()
             Log.i("BuddyTest", "speak: answer %.1f s, voice %.1f s, audio %s: %s".format((answered - started) / 1000.0, (spoken - answered) / 1000.0, audio?.let { "${it.millis} ms at ${it.sampleRate} Hz" } ?: "none", said))
             graph.cards.show(BuddyCard.Done(Symbol.PRIVATE, "Read on this phone", said))
-            audio?.let { graph.speech.play(it) }
+            if (aloud) audio?.let { graph.speech.play(it) }
         }
     }
 
@@ -128,7 +128,7 @@ class MainActivity : ComponentActivity() {
     ) {
         intent.getStringExtra("page")?.let { testPage.value = TestPage(it) }
         if (intent.getStringExtra("card") == "reader") return testReader()
-        if (intent.getStringExtra("card") == "speak") return testSpeech()
+        if (intent.getStringExtra("card") == "speak") return testSpeech(aloud = !intent.getBooleanExtra("silent", false))
         val sms = runCatching { Telephony.Sms.getDefaultSmsPackage(this) }.getOrNull() ?: packageName
         val card =
             when (intent.getStringExtra("card")) {
