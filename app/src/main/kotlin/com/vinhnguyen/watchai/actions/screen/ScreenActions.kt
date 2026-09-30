@@ -143,16 +143,25 @@ class ScreenActions(
         return risky
     }
 
-    /** A look at the app in front, or null when there's none, or it's not one the user turned on. */
-    private fun look(hands: BuddyAccessibility): Pair<String, BuddyAccessibility.Screen>? {
-        val screen = hands.look() ?: return null
-        if (!limits.allowed(screen.packageName)) return null
-        last = screen
-        return appName(screen.packageName) to screen
+    /**
+     * A look at the app in front, or null when there's none, or it's not one the user turned on. Right
+     * after an app opens, Android can still show its own screen or the app before for a moment (29.09,
+     * opening Zalo), so it looks again a few times before giving up.
+     */
+    private suspend fun look(hands: BuddyAccessibility): Pair<String, BuddyAccessibility.Screen>? {
+        repeat(LOOK_TRIES) { attempt ->
+            val screen = hands.look()
+            if (screen != null && limits.allowed(screen.packageName)) {
+                last = screen
+                return appName(screen.packageName) to screen
+            }
+            if (attempt < LOOK_TRIES - 1) delay(LOOK_WAIT_MS)
+        }
+        return null
     }
 
     /** The last look if it's still the app in front, else a new one. */
-    private fun fresh(hands: BuddyAccessibility): Pair<String, BuddyAccessibility.Screen>? {
+    private suspend fun fresh(hands: BuddyAccessibility): Pair<String, BuddyAccessibility.Screen>? {
         val now = hands.look() ?: return null
         val kept = last
         return if (kept != null && kept.packageName == now.packageName && limits.allowed(now.packageName)) appName(kept.packageName) to kept else look(hands)
@@ -208,6 +217,8 @@ class ScreenActions(
 
         private const val ID_MAX = 1000
         private const val VERDICTS_MAX = 300
+        private const val LOOK_TRIES = 5
+        private const val LOOK_WAIT_MS = 400L
         private const val WORDS_MAX = 80
         private const val TYPE_MAX = 300
         private const val SETTLE_MS = 700L

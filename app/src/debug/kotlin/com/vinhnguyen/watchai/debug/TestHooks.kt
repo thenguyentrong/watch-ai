@@ -149,6 +149,15 @@ class TestHooks : BroadcastReceiver() {
         }
         // A conversation with the real ChatGPT planner, from adb (EndToEnd): --es e2e "<what the user says>",
         // --es e2e_new x, --es e2e_message "<from>|<text>" (made up), --es e2e_clean x.
+        // The windows the accessibility service sees: type, whether active or focused, and whose they are (no content).
+        if (intent.getStringExtra("check") == "windows") {
+            val service = com.vinhnguyen.watchai.actions.screen.BuddyAccessibility.current
+            val windows = runCatching { service?.windows }.getOrNull().orEmpty()
+            windows.forEachIndexed { i, w ->
+                Timber.tag(TAG).i("window %d: type %d, active %s, focused %s, layer %d, app %s", i, w.type, w.isActive, w.isFocused, w.layer, w.root?.packageName)
+            }
+            Timber.tag(TAG).i("windows: %d, active root %s", windows.size, runCatching { service?.rootInActiveWindow?.packageName }.getOrNull())
+        }
         // How many apps are on, off or always off (counts only), and one app set on or off for a test.
         if (intent.getStringExtra("check") == "apps") {
             graph.scope.launch {
