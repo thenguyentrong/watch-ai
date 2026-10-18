@@ -22,7 +22,7 @@ androidx-test-runner = "1.7.0"
 webrtc-sdk = "150.7871.01"
 spotless = "8.10.3"
 ktlint = "1.8.0"
-cyclonedx = "3.4.1"
+cyclonedx = "3.5.1"
 
 wear-compose = "1.7.0"
 play-services-wearable = "20.0.1"
