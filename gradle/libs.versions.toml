@@ -71,7 +71,7 @@ mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "
 
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 # Buddy Plus: purchases through RevenueCat (Test Store works without a store account; needs 9.9+).
-revenuecat = { module = "com.revenuecat.purchases:purchases", version = "10.23.3" }
+revenuecat = { module = "com.revenuecat.purchases:purchases", version = "10.26.0" }
 webrtc-sdk = { module = "io.github.webrtc-sdk:android", version.ref = "webrtc-sdk" }
 
 junit = { module = "junit:junit", version.ref = "junit" }
