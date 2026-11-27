@@ -6,12 +6,15 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
+import android.os.PowerManager
+import android.os.Process
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.VibratorManager
@@ -34,9 +37,11 @@ import com.vinhnguyen.watchai.watchlink.Pcm
 import com.vinhnguyen.watchai.watchlink.PcmQueue
 import com.vinhnguyen.watchai.watchlink.SilenceGate
 import com.vinhnguyen.watchai.watchlink.WatchLink
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -55,6 +60,8 @@ import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 import kotlin.random.Random
 
 /**
@@ -85,6 +92,7 @@ class PhoneVoiceLink private constructor(
     private val appContext = context.applicationContext
     private val channels = Wearable.getChannelClient(appContext)
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
+    private val powerManager = appContext.getSystemService(PowerManager::class.java)
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
@@ -95,8 +103,10 @@ class PhoneVoiceLink private constructor(
     private val cleanup = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var channel: ChannelClient.Channel? = null
     private var output: DataOutputStream? = null
-    private val playback = PcmQueue(WatchLink.SAMPLE_RATE * 2)
+    private val playback = PcmQueue(WatchLink.SAMPLE_RATE * 3)
     private var previousMode = AudioManager.MODE_NORMAL
+    private var audioFocus: AudioFocusRequest? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     @Volatile private var flushRequested = false
     private val stats = LinkStats()
@@ -149,6 +159,10 @@ class PhoneVoiceLink private constructor(
             speakerOn = null
             micOn = null
             phoneHungUp = false
+            flushRequested = false
+            playback.clear()
+            outbox.clearAudio()
+            acquireWakeLock()
             _state.value = State(Phase.CONNECTING, detail = "Calling your phone…")
             Log.i(TAG, "calling the phone")
             CallService.talk(appContext)
@@ -167,7 +181,9 @@ class PhoneVoiceLink private constructor(
             channel = null
             output = null
             s.coroutineContext[Job]?.cancelAndJoin()
+            playback.clear()
             restoreAudio()
+            releaseWakeLock()
             Log.i(TAG, "call ended")
             CallService.talked()
             if (answered) buzz(VibrationEffect.EFFECT_DOUBLE_CLICK)
@@ -205,7 +221,7 @@ class PhoneVoiceLink private constructor(
             s.launch { speak() }
             s.launch { send(out) }
             s.launch { ping() }
-            receive(input)
+            runOnDedicatedThread("watch-receive", Process.THREAD_PRIORITY_DISPLAY) { receive(input) }
             // The phone closed the channel: back to the idle face if it said goodbye, else the link broke.
             if (scope != null) {
                 val ended = phoneHungUp
@@ -247,8 +263,8 @@ class PhoneVoiceLink private constructor(
                 }
 
                 Frame.Flush -> {
-                    playback.clear()
                     flushRequested = true
+                    playback.clear()
                 }
 
                 is Frame.Message -> {
@@ -317,7 +333,7 @@ class PhoneVoiceLink private constructor(
 
     /** Records echo-cancelled 40 ms frames for the phone until the phone switches the mic off. */
     @SuppressLint("MissingPermission") // checked in start()
-    private suspend fun record() = withContext(Dispatchers.IO) {
+    private suspend fun record() = runOnDedicatedThread("watch-record", Process.THREAD_PRIORITY_URGENT_AUDIO) { running ->
         val minBuffer = AudioRecord.getMinBufferSize(WatchLink.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val record =
             AudioRecord(
@@ -325,7 +341,7 @@ class PhoneVoiceLink private constructor(
                 WatchLink.SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
-                maxOf(minBuffer, WatchLink.FRAME_BYTES * 4),
+                maxOf(minBuffer * 2, WatchLink.FRAME_BYTES * 8),
             )
         val aec = if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(record.audioSessionId)?.apply { enabled = true } else null
         // ADPCM keeps the Bluetooth link light; silence isn't sent (the phone feeds silence itself).
@@ -337,7 +353,7 @@ class PhoneVoiceLink private constructor(
         try {
             record.startRecording()
             Log.i(TAG, "mic open, audio mode ${audioManager.mode}")
-            while (isActive && micOn != false) {
+            while (running() && micOn != false) {
                 val readStart = SystemClock.elapsedRealtime()
                 val n = record.read(frame, 0, frame.size)
                 stats.add("reads")
@@ -389,73 +405,194 @@ class PhoneVoiceLink private constructor(
         Log.i(TAG, "sent ${frames.size * FRAME_MS} ms said before the phone picked up")
     }
 
-    /** Plays the answer as it arrives; a flush drops what is queued the moment the user interrupts. */
-    private suspend fun speak() = withContext(Dispatchers.IO) {
+    /**
+     * Plays the answer with a jitter pre-buffer so bursty Bluetooth packets don't starve AudioTrack:
+     * waits until [PLAY_PREBUFFER_SAMPLES] arrive (or [PLAY_PREBUFFER_MAX_WAIT_MS] for short words),
+     * pre-fills the paused AudioTrack before calling play(), and pauses cleanly between utterances.
+     * A flush drops what is queued the moment the user interrupts.
+     */
+    private suspend fun speak() = runOnDedicatedThread("watch-speak", Process.THREAD_PRIORITY_URGENT_AUDIO) { running ->
         var track: AudioTrack? = null
+        var playingAudio = false
+        var bufferingSinceMs = -1L
+        var drySinceMs = -1L
+        var lastUnderruns = 0
+        val silenceFrame = ShortArray(WatchLink.FRAME_SAMPLES)
         try {
-            while (isActive) {
+            while (running()) {
                 // Earbuds on the phone play the answer: no speaker, no call audio mode on the watch.
                 when (speakerOn) {
                     true ->
                         if (track == null) {
                             useWatchSpeaker()
-                            track = newTrack().also { it.play() }
+                            track = newTrack()
+                            playingAudio = false
+                            bufferingSinceMs = -1L
+                            drySinceMs = -1L
+                            lastUnderruns = 0
                         }
 
                     false ->
                         track?.let {
-                            runCatching { it.stop() }
+                            runCatching {
+                                it.pause()
+                                it.flush()
+                                it.stop()
+                            }
                             it.release()
                             track = null
+                            playingAudio = false
+                            bufferingSinceMs = -1L
+                            drySinceMs = -1L
                             playback.clear()
                             restoreAudio()
                         }
 
                     null -> Unit
                 }
-                val playing = track
-                if (playing == null) {
-                    delay(100)
+                val activeTrack = track
+                if (activeTrack == null) {
+                    Thread.sleep(50)
                     continue
                 }
                 if (flushRequested) {
                     flushRequested = false
-                    playing.pause()
-                    playing.flush()
-                    playing.play()
+                    if (playingAudio) {
+                        runCatching {
+                            activeTrack.pause()
+                            activeTrack.flush()
+                        }
+                        playingAudio = false
+                    } else {
+                        runCatching { activeTrack.flush() }
+                    }
+                    bufferingSinceMs = -1L
+                    drySinceMs = -1L
+                    continue
                 }
-                // Sleeps until audio arrives (no polling: this runs for the whole conversation).
-                if (playback.awaitAtLeast(WatchLink.FRAME_SAMPLES, timeoutMs = 50)) {
-                    val chunk = playback.take(WatchLink.FRAME_SAMPLES)
-                    playing.write(chunk, 0, chunk.size)
+                // Cap extreme backlog after a severe Bluetooth stall so latency stays bounded.
+                if (playback.available > PLAY_MAX_QUEUE_SAMPLES) {
+                    playback.trimTo(PLAY_TRIM_TO_SAMPLES)
+                    stats.add("playTrim")
+                }
+                if (!playingAudio) {
+                    if (playback.available == 0) {
+                        bufferingSinceMs = -1L
+                        playback.awaitAny(timeoutMs = 50)
+                        continue
+                    }
+                    val now = SystemClock.elapsedRealtime()
+                    if (bufferingSinceMs < 0L) bufferingSinceMs = now
+                    val ready = playback.available >= PLAY_PREBUFFER_SAMPLES || now - bufferingSinceMs >= PLAY_PREBUFFER_MAX_WAIT_MS
+                    if (!ready) {
+                        val left = (PLAY_PREBUFFER_MAX_WAIT_MS - (now - bufferingSinceMs)).coerceIn(1L, 30L)
+                        playback.awaitAtLeast(PLAY_PREBUFFER_SAMPLES, timeoutMs = left)
+                        continue
+                    }
+                    // Pre-fill the paused AudioTrack before play() so hardware playback starts with a full cushion.
+                    val maxPrime = minOf(PLAY_PRIME_FRAMES, maxOf(1, activeTrack.bufferSizeInFrames / WatchLink.FRAME_SAMPLES - 1))
+                    var primedFrames = 0
+                    var firstChunk = true
+                    while (running() && !flushRequested && primedFrames < maxPrime && playback.available > 0) {
+                        val chunk = takePaddedFrame()
+                        if (firstChunk) {
+                            Pcm.fadeIn(chunk, FADE_SAMPLES)
+                            firstChunk = false
+                        }
+                        activeTrack.write(chunk, 0, chunk.size)
+                        primedFrames++
+                    }
+                    if (!flushRequested && primedFrames > 0) {
+                        activeTrack.play()
+                        playingAudio = true
+                        bufferingSinceMs = -1L
+                        drySinceMs = -1L
+                        lastUnderruns = activeTrack.underrunCount
+                    }
+                } else {
+                    if (playback.available >= WatchLink.FRAME_SAMPLES) {
+                        drySinceMs = -1L
+                        val chunk = playback.take(WatchLink.FRAME_SAMPLES)
+                        activeTrack.write(chunk, 0, chunk.size)
+                        val underruns = activeTrack.underrunCount
+                        if (underruns > lastUnderruns) {
+                            stats.add("underruns", (underruns - lastUnderruns).toLong())
+                            lastUnderruns = underruns
+                        }
+                        continue
+                    }
+                    // Queue dipped below one frame; wait briefly while AudioTrack drains its hardware cushion.
+                    val now = SystemClock.elapsedRealtime()
+                    if (drySinceMs < 0L) drySinceMs = now
+                    val waited = now - drySinceMs
+                    if (waited < PLAY_DRAIN_WAIT_MS) {
+                        val left = (PLAY_DRAIN_WAIT_MS - waited).coerceIn(1L, 25L)
+                        playback.awaitAtLeast(WatchLink.FRAME_SAMPLES, timeoutMs = left)
+                        continue
+                    }
+                    // Utterance ended (or Bluetooth stalled past the cushion): drain any partial tail cleanly and pause.
+                    if (playback.available > 0) {
+                        val tail = playback.takeUpTo(WatchLink.FRAME_SAMPLES)
+                        val padded = ShortArray(WatchLink.FRAME_SAMPLES)
+                        tail.copyInto(padded)
+                        Pcm.fadeOut(padded, tail.size, FADE_SAMPLES)
+                        activeTrack.write(padded, 0, padded.size)
+                    }
+                    activeTrack.write(silenceFrame, 0, silenceFrame.size)
+                    val pauseAt = SystemClock.elapsedRealtime() + PLAY_TAIL_HOLD_MS
+                    while (running() && !flushRequested && playback.available == 0) {
+                        val left = pauseAt - SystemClock.elapsedRealtime()
+                        if (left <= 0L) break
+                        playback.awaitAny(timeoutMs = minOf(left, 25L))
+                    }
+                    if (playback.available > 0 && !flushRequested) {
+                        drySinceMs = -1L
+                        continue
+                    }
+                    runCatching {
+                        activeTrack.pause()
+                        activeTrack.flush()
+                    }
+                    playingAudio = false
+                    drySinceMs = -1L
                 }
             }
+        } catch (_: InterruptedException) {
+            // Stopped cleanly.
         } finally {
             track?.let {
-                runCatching { it.stop() }
+                runCatching {
+                    it.pause()
+                    it.flush()
+                    it.stop()
+                }
                 it.release()
             }
         }
+    }
+
+    private fun takePaddedFrame(): ShortArray {
+        if (playback.available >= WatchLink.FRAME_SAMPLES) return playback.take(WatchLink.FRAME_SAMPLES)
+        val tail = playback.takeUpTo(WatchLink.FRAME_SAMPLES)
+        val padded = ShortArray(WatchLink.FRAME_SAMPLES)
+        tail.copyInto(padded)
+        Pcm.fadeOut(padded, tail.size, FADE_SAMPLES)
+        return padded
     }
 
     private fun newTrack(): AudioTrack {
         val minBuffer = AudioTrack.getMinBufferSize(WatchLink.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         return AudioTrack
             .Builder()
-            .setAudioAttributes(
-                AudioAttributes
-                    .Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            ).setAudioFormat(
+            .setAudioAttributes(VOICE_ATTRIBUTES)
+            .setAudioFormat(
                 AudioFormat
                     .Builder()
                     .setSampleRate(WatchLink.SAMPLE_RATE)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .build(),
-            ).setBufferSizeInBytes(maxOf(minBuffer, WatchLink.FRAME_BYTES * 4))
+            ).setBufferSizeInBytes(maxOf(minBuffer * 2, WatchLink.FRAME_BYTES * 8))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
     }
@@ -469,19 +606,50 @@ class PhoneVoiceLink private constructor(
         }
     }
 
-    /** Sends whatever is waiting in one write, so a slow Bluetooth flush never holds up the mic. */
-    private suspend fun send(out: DataOutputStream) = withContext(Dispatchers.IO) {
+    /** Sends waiting frames in coalesced batches, so Bluetooth isn't hammered with per-frame flushes. */
+    private suspend fun send(out: DataOutputStream) = runOnDedicatedThread("watch-send", Process.THREAD_PRIORITY_DISPLAY) { running ->
         try {
-            while (isActive) {
-                val frames = outbox.takeAll(100)
+            while (running()) {
+                val frames = outbox.takeBatch(timeoutMs = 150, batchWindowMs = SEND_BATCH_MS, minAudioFrames = SEND_BATCH_FRAMES)
                 if (frames.isEmpty()) continue
                 val started = SystemClock.elapsedRealtime()
                 FrameCodec.writeAll(out, frames)
                 stats.add("writes")
                 stats.max("writeMaxMs", SystemClock.elapsedRealtime() - started)
             }
-        } catch (e: IOException) {
+        } catch (_: IOException) {
             // The phone hung up mid-write (e.g. after a quiet spell); receive() ends the conversation.
+        } catch (_: InterruptedException) {
+            // Stopped cleanly.
+        }
+    }
+
+    /** Runs [block] on a dedicated thread at [priority], cancelling cleanly when the coroutine cancels. */
+    private suspend fun runOnDedicatedThread(
+        name: String,
+        priority: Int,
+        block: (isRunning: () -> Boolean) -> Unit,
+    ) {
+        val running = AtomicBoolean(true)
+        val done = CompletableDeferred<Unit>()
+        val worker =
+            thread(name = name, isDaemon = true) {
+                runCatching { Process.setThreadPriority(priority) }
+                try {
+                    block { running.get() }
+                    done.complete(Unit)
+                } catch (e: Throwable) {
+                    done.completeExceptionally(e)
+                }
+            }
+        try {
+            done.await()
+        } finally {
+            running.set(false)
+            worker.interrupt()
+            withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { worker.join(THREAD_JOIN_MS) }
+            }
         }
     }
 
@@ -496,6 +664,14 @@ class PhoneVoiceLink private constructor(
     }
 
     private fun useWatchSpeaker() {
+        if (audioFocus == null) {
+            audioFocus =
+                AudioFocusRequest
+                    .Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                    .setAudioAttributes(VOICE_ATTRIBUTES)
+                    .build()
+                    .also { audioManager.requestAudioFocus(it) }
+        }
         if (audioManager.mode != AudioManager.MODE_IN_COMMUNICATION) previousMode = audioManager.mode
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.availableCommunicationDevices
@@ -506,15 +682,51 @@ class PhoneVoiceLink private constructor(
     private fun restoreAudio() {
         runCatching { audioManager.clearCommunicationDevice() }
         audioManager.mode = previousMode
+        audioFocus?.let { runCatching { audioManager.abandonAudioFocusRequest(it) } }
+        audioFocus = null
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        wakeLock =
+            powerManager
+                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "watchai:call")
+                ?.apply {
+                    setReferenceCounted(false)
+                    acquire(WAKE_LOCK_TIMEOUT_MS)
+                }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { wl -> runCatching { if (wl.isHeld) wl.release() } }
+        wakeLock = null
     }
 
     companion object {
+        private val VOICE_ATTRIBUTES: AudioAttributes =
+            AudioAttributes
+                .Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
         private const val PING_MS = 2_000L
         private const val SEED = "buddy_seed"
         private const val TAG = "WatchLink"
         private const val MIC_SILENCE = 0.004f
-        private const val MIC_HANGOVER = 8 // 320 ms
-        private const val OUTBOX_FRAMES = 25 // 1 s of audio at most waiting for the link
+        private const val MIC_HANGOVER = 10 // 400 ms
+        private const val OUTBOX_FRAMES = 40 // 1.6 s of audio at most waiting for the link
+        private const val SEND_BATCH_FRAMES = 3 // 120 ms (~980 bytes) per Bluetooth flush
+        private const val SEND_BATCH_MS = 95L
+        private const val PLAY_PREBUFFER_SAMPLES = WatchLink.FRAME_SAMPLES * 5 // 200 ms jitter cushion
+        private const val PLAY_PREBUFFER_MAX_WAIT_MS = 200L
+        private const val PLAY_PRIME_FRAMES = 4 // 160 ms pre-filled into AudioTrack before play()
+        private const val PLAY_DRAIN_WAIT_MS = 160L
+        private const val PLAY_TAIL_HOLD_MS = 120L
+        private const val PLAY_MAX_QUEUE_SAMPLES = WatchLink.SAMPLE_RATE * 12 / 10 // 1.2 s
+        private const val PLAY_TRIM_TO_SAMPLES = WatchLink.SAMPLE_RATE * 4 / 10 // 400 ms
+        private const val FADE_SAMPLES = 64 // 4 ms at 16 kHz
+        private const val THREAD_JOIN_MS = 1_500L
+        private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1_000L
         private const val LEVEL_EVERY_MS = 100L
         private const val FRAME_MS = 40
         private const val EARLY_FRAMES = 200 // 8 s said before the phone picks up

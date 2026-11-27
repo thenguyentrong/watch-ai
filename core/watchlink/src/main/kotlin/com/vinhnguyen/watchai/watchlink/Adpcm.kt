@@ -104,4 +104,8 @@ public class SilenceGate(
         quietFrames = if (level >= threshold) 0 else quietFrames + 1
         return quietFrames <= hangoverFrames
     }
+
+    public fun reset() {
+        quietFrames = Int.MAX_VALUE / 2
+    }
 }
