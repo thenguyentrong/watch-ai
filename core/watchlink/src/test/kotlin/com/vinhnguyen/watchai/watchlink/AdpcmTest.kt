@@ -65,5 +65,7 @@ class AdpcmTest {
         assertThat(gate.shouldSend(0f)).isTrue()
         assertThat(gate.shouldSend(0f)).isFalse()
         assertThat(gate.shouldSend(0.05f)).isTrue()
+        gate.reset()
+        assertThat(gate.shouldSend(0f)).isFalse()
     }
 }

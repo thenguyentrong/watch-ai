@@ -99,4 +99,57 @@ class OutboxTest {
         assertThat(FrameCodec.read(input)).isEqualTo(Frame.Message(Control("ping", at = 1)))
         assertThat(FrameCodec.read(input)).isNull()
     }
+
+    @Test
+    fun `takeBatch coalesces audio frames until minAudioFrames arrives`() {
+        val box = Outbox(maxAudio = 10)
+        box.offer(audio(1))
+        Thread {
+            Thread.sleep(20)
+            box.offer(audio(2))
+            Thread.sleep(20)
+            box.offer(audio(3))
+        }.start()
+        val started = System.currentTimeMillis()
+        val batch = box.takeBatch(timeoutMs = 500, batchWindowMs = 500, minAudioFrames = 3)
+        val elapsed = System.currentTimeMillis() - started
+        assertThat(batch.filterIsInstance<Frame.Adpcm>().map { it.packet[0].toInt() }).containsExactly(1, 2, 3).inOrder()
+        assertThat(elapsed).isLessThan(350)
+    }
+
+    @Test
+    fun `takeBatch flushes a partial batch after batchWindowMs`() {
+        val box = Outbox(maxAudio = 10)
+        box.offer(audio(1))
+        val started = System.currentTimeMillis()
+        val batch = box.takeBatch(timeoutMs = 500, batchWindowMs = 60, minAudioFrames = 3)
+        val elapsed = System.currentTimeMillis() - started
+        assertThat(batch.filterIsInstance<Frame.Adpcm>().map { it.packet[0].toInt() }).containsExactly(1)
+        assertThat(elapsed).isAtLeast(45)
+        assertThat(elapsed).isLessThan(300)
+    }
+
+    @Test
+    fun `takeBatch returns immediately for urgent control frames and coalesces routine status`() {
+        val box = Outbox(maxAudio = 10)
+        box.offer(audio(1))
+        box.offer(Frame.Message(Control("status", phase = "speaking", level = 0.5f)))
+        Thread {
+            Thread.sleep(25)
+            box.offer(Frame.Flush)
+        }.start()
+        val started = System.currentTimeMillis()
+        val batch = box.takeBatch(timeoutMs = 500, batchWindowMs = 500, minAudioFrames = 3)
+        val elapsed = System.currentTimeMillis() - started
+        assertThat(batch).hasSize(3)
+        assertThat(batch.last()).isEqualTo(Frame.Flush)
+        assertThat(elapsed).isLessThan(250)
+
+        // An urgent status (phase change) also bypasses the batch window.
+        box.offer(Frame.Message(Control("status", phase = "listening")), urgent = true)
+        val urgentStart = System.currentTimeMillis()
+        val urgentBatch = box.takeBatch(timeoutMs = 500, batchWindowMs = 500, minAudioFrames = 3)
+        assertThat(urgentBatch).hasSize(1)
+        assertThat(System.currentTimeMillis() - urgentStart).isLessThan(150)
+    }
 }

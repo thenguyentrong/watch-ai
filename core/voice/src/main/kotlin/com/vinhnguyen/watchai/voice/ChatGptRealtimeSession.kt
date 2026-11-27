@@ -404,7 +404,9 @@ class ChatGptRealtimeSession(
      */
     private suspend fun pollLevels(connection: PeerConnection) {
         val timer = TurnTimer()
-        val bargeIn = BargeIn()
+        // Over a Bluetooth watch link, speaker echo takes ~0.6-1.2 s to make the round trip back to
+        // the phone; a 400 ms learn window finishes before it arrives and mistakes the echo for barge-in.
+        val bargeIn = if (external != null) BargeIn(learnMs = EXTERNAL_BARGE_IN_LEARN_MS) else BargeIn()
         // Loudest mic level over each answer, logged with the leak and the threshold: shows why a talk-over did or didn't mute.
         var micPeak = 0.0
         var answering = false
@@ -736,6 +738,7 @@ class ChatGptRealtimeSession(
                 .build()
         private const val CALL_URL = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
         private const val ICE_GATHER_TIMEOUT_MS = 400L
+        private const val EXTERNAL_BARGE_IN_LEARN_MS = 1_500L
         private const val POLL_MS = 50L
         private const val LISTEN_LOG_MS = 2_000L
         private const val FIRST_WORDS_MS = 20_000L

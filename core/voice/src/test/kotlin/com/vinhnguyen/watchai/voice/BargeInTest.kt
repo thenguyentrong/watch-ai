@@ -120,4 +120,15 @@ class BargeInTest {
         b.feed(1_000, 1_900, user = 0.3)
         assertThat(b.feed(1_900, 10_000, user = 0.0)).containsExactly(9_200L to Action.UNMUTE)
     }
+
+    @Test
+    fun `delayed watch echo is learned when learnMs covers the link round trip`() {
+        val b = BargeIn(learnMs = 1_500)
+        // First 700 ms: audio hasn't echoed back over Bluetooth yet.
+        assertThat(b.feed(0, 700, user = 0.0)).isEmpty()
+        // Watch speaker echo arrives at 700 ms and persists: learned during the 1.5 s window, never false-mutes.
+        assertThat(b.feed(700, 4_000, user = 0.1)).isEmpty()
+        // Real user speech louder than the echo still mutes promptly.
+        assertThat(b.feed(4_000, 4_300, user = 0.4)).containsExactly(4_200L to Action.MUTE)
+    }
 }

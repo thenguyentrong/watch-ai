@@ -108,4 +108,65 @@ class WatchLinkTest {
         assertThat(q.available).isEqualTo(4)
         assertThat(q.take(5).toList()).containsExactly(5.toShort(), 6.toShort(), 7.toShort(), 8.toShort(), 0.toShort()).inOrder()
     }
+
+    @Test
+    fun `takeUpTo drains partial tails without zero padding`() {
+        val q = PcmQueue(maxSamples = 10)
+        q.offer(shortArrayOf(10, 20, 30))
+        assertThat(q.takeUpTo(5).toList()).containsExactly(10.toShort(), 20.toShort(), 30.toShort()).inOrder()
+        assertThat(q.available).isEqualTo(0)
+        assertThat(q.takeUpTo(5).toList()).isEmpty()
+    }
+
+    @Test
+    fun `pre-buffering jitter buffer holds until primed, absorbs jitter, and re-primes after underrun`() {
+        var now = 0L
+        val jb = JitterBuffer(maxSamples = 1_000, prebufferSamples = 120, maxHoldMs = 150, clockMs = { now })
+
+        // First 60 samples arrive: still below prebuffer and maxHoldMs, so silence is handed out.
+        jb.offer(ShortArray(60) { 1000 })
+        assertThat(jb.isStreaming).isFalse()
+        assertThat(jb.take(40).all { it == 0.toShort() }).isTrue()
+        assertThat(jb.available).isEqualTo(60)
+
+        // Second 60 samples arrive: prebuffer reached -> starts streaming with fade-in.
+        now = 40L
+        jb.offer(ShortArray(60) { 1000 })
+        val first = jb.take(60)
+        assertThat(jb.isStreaming).isTrue()
+        assertThat(first.first()).isEqualTo(0.toShort())
+        assertThat(first.last()).isEqualTo(1000.toShort())
+
+        // Drain the remaining 60 samples cleanly (no underrun yet).
+        val second = jb.take(60)
+        assertThat(second.all { it == 1000.toShort() }).isTrue()
+        assertThat(jb.underruns).isEqualTo(0)
+
+        // Next pull finds buffer empty -> records underrun and returns to pre-buffering.
+        assertThat(jb.take(40).all { it == 0.toShort() }).isTrue()
+        assertThat(jb.isStreaming).isFalse()
+        assertThat(jb.underruns).isEqualTo(1)
+
+        // Short utterance below prebuffer is released once maxHoldMs elapses.
+        now = 100L
+        jb.offer(ShortArray(50) { 2000 })
+        assertThat(jb.take(50).all { it == 0.toShort() }).isTrue()
+        now = 260L
+        val released = jb.take(50)
+        assertThat(released.last()).isEqualTo(2000.toShort())
+    }
+
+    @Test
+    fun `fadeIn and fadeOut ramp smoothly without abrupt steps`() {
+        val samples = ShortArray(100) { 1000 }
+        Pcm.fadeIn(samples, 10)
+        assertThat(samples[0]).isEqualTo(0.toShort())
+        assertThat(samples[5]).isEqualTo(500.toShort())
+        assertThat(samples[10]).isEqualTo(1000.toShort())
+
+        Pcm.fadeOut(samples, endExclusive = 80, fadeSamples = 10)
+        assertThat(samples[70]).isEqualTo(900.toShort())
+        assertThat(samples[79]).isEqualTo(0.toShort())
+        assertThat(samples[80]).isEqualTo(1000.toShort())
+    }
 }

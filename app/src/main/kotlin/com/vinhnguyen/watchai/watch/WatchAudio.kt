@@ -3,6 +3,7 @@ package com.vinhnguyen.watchai.watch
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import com.vinhnguyen.watchai.buddy.Reaction
@@ -13,10 +14,10 @@ import com.vinhnguyen.watchai.watchlink.Chime
 import com.vinhnguyen.watchai.watchlink.Control
 import com.vinhnguyen.watchai.watchlink.Frame
 import com.vinhnguyen.watchai.watchlink.FrameCodec
+import com.vinhnguyen.watchai.watchlink.JitterBuffer
 import com.vinhnguyen.watchai.watchlink.LinkStats
 import com.vinhnguyen.watchai.watchlink.Outbox
 import com.vinhnguyen.watchai.watchlink.Pcm
-import com.vinhnguyen.watchai.watchlink.PcmQueue
 import com.vinhnguyen.watchai.watchlink.SilenceGate
 import com.vinhnguyen.watchai.watchlink.WatchLink
 import kotlinx.coroutines.CompletableDeferred
@@ -78,13 +79,24 @@ class WatchAudio(
 
     private fun routeMessage() = Frame.Message(Control("route", speaker = route == Route.WATCH, mic = route != Route.HEADSET || catchUp))
 
-    private val mic = PcmQueue(WatchLink.SAMPLE_RATE * EARLY_MAX_S)
+    private val mic =
+        JitterBuffer(
+            maxSamples = WatchLink.SAMPLE_RATE * EARLY_MAX_S,
+            prebufferSamples = MIC_PREBUFFER_SAMPLES,
+            maxHoldMs = MIC_HOLD_MS,
+            clockMs = SystemClock::elapsedRealtime,
+        )
     private val outbox = Outbox(maxAudio = OUTBOX_FRAMES)
     private val pending = ShortArray(WatchLink.FRAME_SAMPLES)
     private var pendingCount = 0
+    private val answerEncoder = Adpcm.Encoder()
+    private val answerGate = SilenceGate(threshold = ANSWER_SILENCE, hangoverFrames = ANSWER_HANGOVER)
+    private var previousAnswer: ShortArray? = null
     private val pendingLock = Any()
 
     @Volatile private var lastStatusAt = 0L
+
+    @Volatile private var lastPhase: VoicePhase? = null
 
     @Volatile private var chimed = false
 
@@ -154,6 +166,7 @@ class WatchAudio(
     }
 
     private fun readLoop() {
+        runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY) }
         try {
             while (!closed) {
                 when (val frame = FrameCodec.read(input) ?: break) {
@@ -200,36 +213,22 @@ class WatchAudio(
         }
     }
 
-    /** Sends everything waiting in one write: each flush costs the watch a Bluetooth round trip. */
+    /** Sends waiting frames in coalesced batches: each flush costs the Bluetooth link a round trip. */
     private fun writeLoop() {
-        val encoder = Adpcm.Encoder()
-        val gate = SilenceGate(threshold = ANSWER_SILENCE, hangoverFrames = ANSWER_HANGOVER)
+        runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY) }
         var lastReport = SystemClock.elapsedRealtime()
         try {
             while (!closed) {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastReport >= REPORT_MS) {
                     lastReport = now
-                    Log.i(TAG, "phone ${stats.drain()} outbox=${outbox.size} dropped=${outbox.dropped} micQueue=${mic.available}")
+                    Log.i(TAG, "phone ${stats.drain()} outbox=${outbox.size} dropped=${outbox.dropped} micQueue=${mic.available} micUnderruns=${mic.underruns}")
                 }
-                val waiting = outbox.takeAll(200)
-                if (waiting.isEmpty()) continue
-                val frames =
-                    waiting.mapNotNull { frame ->
-                        if (frame is Frame.Audio) {
-                            val pcm = Pcm.toShorts(frame.pcm)
-                            if (gate.shouldSend(Pcm.level(pcm))) {
-                                stats.add("outAdpcm")
-                                Frame.Adpcm(encoder.encode(pcm))
-                            } else {
-                                stats.add("outSilent")
-                                null
-                            }
-                        } else {
-                            stats.add("outOther")
-                            frame
-                        }
-                    }
+                val frames = outbox.takeBatch(timeoutMs = 200, batchWindowMs = SEND_BATCH_MS, minAudioFrames = SEND_BATCH_FRAMES)
+                if (frames.isEmpty()) continue
+                for (frame in frames) {
+                    if (frame !is Frame.Adpcm && frame !is Frame.Audio) stats.add("outOther")
+                }
                 val started = SystemClock.elapsedRealtime()
                 FrameCodec.writeAll(output, frames)
                 stats.add("writes")
@@ -280,11 +279,31 @@ class WatchAudio(
             for (s in down) {
                 pending[pendingCount++] = s
                 if (pendingCount == pending.size) {
-                    // If the link can't keep up, the outbox drops the oldest audio rather than fall behind.
-                    outbox.offer(Frame.Audio(Pcm.toBytes(pending)))
+                    offerAnswerFrameLocked(pending)
                     pendingCount = 0
                 }
             }
+        }
+    }
+
+    /** Silence-gates and encodes a 40 ms answer frame before it enters [outbox], so silence never evicts speech. */
+    private fun offerAnswerFrameLocked(frame: ShortArray) {
+        val level = Pcm.level(frame)
+        val wasOpen = previousAnswer == null
+        if (answerGate.shouldSend(level)) {
+            // Include the frame right before speech starts so soft first consonants aren't clipped.
+            if (!wasOpen) {
+                previousAnswer?.let {
+                    outbox.offer(Frame.Adpcm(answerEncoder.encode(it)))
+                    stats.add("outAdpcm")
+                }
+            }
+            outbox.offer(Frame.Adpcm(answerEncoder.encode(frame)))
+            stats.add("outAdpcm")
+            previousAnswer = null
+        } else {
+            stats.add("outSilent")
+            previousAnswer = frame.copyOf()
         }
     }
 
@@ -325,7 +344,9 @@ class WatchAudio(
         var at = 0
         while (at < pcm.size && !closed) {
             val frame = pcm.copyOfRange(at, minOf(at + WatchLink.FRAME_SAMPLES, pcm.size)).copyOf(WatchLink.FRAME_SAMPLES)
-            outbox.offer(Frame.Audio(Pcm.toBytes(frame)))
+            val packet = synchronized(pendingLock) { answerEncoder.encode(frame) }
+            outbox.offer(Frame.Adpcm(packet))
+            stats.add("outAdpcm")
             at += WatchLink.FRAME_SAMPLES
             val wait = started + at * 1_000L / WatchLink.SAMPLE_RATE - LOCAL_LEAD_MS - SystemClock.elapsedRealtime()
             if (wait > 0) delay(wait)
@@ -335,7 +356,11 @@ class WatchAudio(
     }
 
     override fun flushAnswer() {
-        synchronized(pendingLock) { pendingCount = 0 }
+        synchronized(pendingLock) {
+            pendingCount = 0
+            previousAnswer = null
+            answerGate.reset()
+        }
         outbox.clearAudio()
         outbox.offer(Frame.Flush)
     }
@@ -349,20 +374,29 @@ class WatchAudio(
             chimed = true
             if (answerOnPhone) chimeOnPhone()
         }
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastStatusAt < STATUS_EVERY_MS) return
-        lastStatusAt = now
-        outbox.offer(Frame.Message(Control("status", phase = phase.name.lowercase(), level = level)))
+        val phaseChanged = phase != lastPhase
+        if (!phaseChanged) {
+            // While the watch is the mic it measures listening loudness locally; skip redundant Bluetooth traffic.
+            if (phase == VoicePhase.LISTENING && micOnDevice) return
+            if (phase == VoicePhase.THINKING) return
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastStatusAt < STATUS_EVERY_MS) return
+        }
+        lastPhase = phase
+        lastStatusAt = SystemClock.elapsedRealtime()
+        outbox.offer(Frame.Message(Control("status", phase = phase.name.lowercase(), level = level)), urgent = phaseChanged)
     }
 
     private companion object {
-        const val OUTBOX_FRAMES = 25 // 1 s of 40 ms audio frames
-        const val LOCAL_LEAD_MS = 200L
-        const val LOCAL_TAIL_MS = 250L
+        const val OUTBOX_FRAMES = 40 // 1.6 s of 40 ms audio frames
+        const val SEND_BATCH_FRAMES = 3 // 120 ms (~980 bytes) per Bluetooth flush
+        const val SEND_BATCH_MS = 95L
+        const val LOCAL_LEAD_MS = 300L
+        const val LOCAL_TAIL_MS = 300L
         const val STATUS_EVERY_MS = 250L
         const val REPORT_MS = 2_000L
         const val ANSWER_SILENCE = 0.002f
-        const val ANSWER_HANGOVER = 5 // 200 ms
+        const val ANSWER_HANGOVER = 12 // 480 ms: keeps speech continuous across natural word pauses
         const val ASK_TIMEOUT_MS = 5_000L
         const val FRAME_MS = 40L
         const val TAG = "WatchLink"
@@ -370,8 +404,12 @@ class WatchAudio(
         /** Room for the early burst (the watch keeps up to 8 s). */
         const val EARLY_MAX_S = 10
 
-        /** After the early burst, a half second at most waits for WebRTC, so latency can't grow. */
-        const val LIVE_MAX_SAMPLES = WatchLink.SAMPLE_RATE / 2
+        /** Pre-buffer for watch mic bursts so Bluetooth jitter doesn't punch silence holes into speech. */
+        const val MIC_PREBUFFER_SAMPLES = WatchLink.FRAME_SAMPLES * 4 // 160 ms
+        const val MIC_HOLD_MS = 160L
+
+        /** After the early burst, keep latency bounded while leaving headroom for batches and jitter. */
+        const val LIVE_MAX_SAMPLES = WatchLink.SAMPLE_RATE * 640 / 1_000
 
         /** How long a call waits for the early burst before it's plain live audio. */
         const val CATCH_UP_WAIT_MS = 2_500L
